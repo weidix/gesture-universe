@@ -545,18 +545,24 @@ impl AppView {
             .into_any_element()
     }
 
-    fn render_main(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> AnyElement {
+    fn render_main(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> AnyElement {
         let theme = cx.theme();
 
         if let Some(rx) = self.frame_rx.as_ref() {
             while let Ok(frame) = rx.try_recv() {
+                let overlay = self.latest_result.as_ref().and_then(|r| {
+                    if r.confidence >= 0.5 {
+                        r.landmarks.as_ref().map(|v| v.as_slice())
+                    } else {
+                        None
+                    }
+                });
+
                 if let Some(image) = frame_to_image(
                     &frame,
-                    self.latest_result
-                        .as_ref()
-                        .and_then(|r| r.landmarks.as_ref().map(|v| v.as_slice())),
+                    overlay,
                 ) {
-                    self.latest_image = Some(image);
+                    self.replace_latest_image(image, window, cx);
                 }
                 self.latest_frame = Some(frame);
             }
@@ -597,6 +603,12 @@ impl AppView {
             .as_ref()
             .map(|g| format!("手势: {}", g.display_text()))
             .unwrap_or_else(|| "手势: ...".to_string());
+
+        let confidence_text = self
+            .latest_result
+            .as_ref()
+            .map(|r| format!("{:.0}%", r.confidence * 100.0))
+            .unwrap_or_else(|| "--".to_string());
 
         let (camera_width, camera_height) = if self.camera_expanded {
             (px(420.0), px(320.0))
@@ -779,19 +791,13 @@ impl AppView {
                     .text_sm()
                     .text_color(theme.muted_foreground)
                     .child(frame_status),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme.foreground)
+                    .child(format!("置信度 {confidence_text}")),
             );
-
-        if let Some(result) = &self.latest_result {
-            hero_card = hero_card.child(
-                Tag::success()
-                    .rounded_full()
-                    .small()
-                    .child(format!("置信度 {:.0}%", result.confidence * 100.0)),
-            );
-        } else {
-            hero_card =
-                hero_card.child(Tag::warning().rounded_full().small().child("等待识别结果"));
-        }
 
         let camera_ready_tag = if self.latest_frame.is_some() {
             Tag::success().rounded_full().small().child("摄像头就绪")
@@ -812,21 +818,9 @@ impl AppView {
             .gap_4()
             .child(
                 h_flex()
-                    .justify_between()
+                    .justify_end()
                     .items_center()
                     .flex_wrap()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                Tag::primary()
-                                    .rounded_full()
-                                    .small()
-                                    .child("Gesture Universe"),
-                            )
-                            .child(div().text_xl().font_semibold().child("手势宇宙")),
-                    )
                     .child(
                         h_flex()
                             .gap_2()
@@ -890,6 +884,21 @@ impl Render for AppView {
         };
         self.screen = screen;
         view
+    }
+}
+
+impl AppView {
+    fn replace_latest_image(
+        &mut self,
+        new_image: Arc<RenderImage>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(old_image) = self.latest_image.replace(new_image) {
+            // Explicitly drop the previous GPU texture; otherwise the sprite atlas keeps
+            // every frame and memory will climb rapidly while the camera is running.
+            cx.drop_image(old_image, Some(window));
+        }
     }
 }
 
