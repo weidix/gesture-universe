@@ -8,7 +8,7 @@ use gpui::{
 };
 use gpui::prelude::FluentBuilder;
 use gpui_component::{
-    ActiveTheme, Root, Selectable, Sizable, StyledExt,
+    ActiveTheme, Root, Selectable, StyledExt,
     button::{Button, ButtonVariants},
     h_flex,
     tag::Tag,
@@ -291,15 +291,17 @@ impl AppView {
                 .border_color(theme.border)
                 .bg(theme.group_box)
                 .child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(Tag::danger().rounded_full().small().child("没有可用摄像头"))
-                        .child(
-                            div()
-                                .text_color(theme.muted_foreground)
-                                .child("请检查摄像头连接或权限设置"),
-                        ),
+                    div()
+                        .text_sm()
+                        .text_color(theme.accent)
+                        .font_semibold()
+                        .child("⚠ 没有可用摄像头"),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child("请检查摄像头连接或权限设置"),
                 )
                 .child(div().text_color(theme.foreground).child(message.clone()))
                 .into_any_element(),
@@ -348,16 +350,17 @@ impl AppView {
                     .border_color(theme.border)
                     .bg(theme.group_box)
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(Tag::secondary().rounded_full().small().child("选择摄像头"))
-                            .child(div().text_lg().font_semibold().child("检测到多个摄像头")),
+                        div()
+                            .text_base()
+                            .font_semibold()
+                            .text_color(theme.foreground)
+                            .child("选择摄像头"),
                     )
                     .child(
                         div()
+                            .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child("请选择要使用的设备"),
+                            .child("检测到多个摄像头，请选择要使用的设备"),
                     )
                     .child(list)
                     .child(
@@ -387,7 +390,12 @@ impl AppView {
                 .border_1()
                 .border_color(theme.border)
                 .bg(theme.group_box)
-                .child(Tag::info().rounded_full().child("正在启动摄像头..."))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(theme.foreground)
+                        .child("⟳ 正在启动摄像头..."),
+                )
                 .into_any_element(),
         }
     }
@@ -561,12 +569,12 @@ impl AppView {
             _ => format!("Downloaded {} KB", state.downloaded / 1024),
         };
 
-        let status_tag = if state.finished && state.error.is_none() {
-            Tag::success().rounded_full().small().child("模型就绪")
+        let (status_icon, status_text, status_color) = if state.finished && state.error.is_none() {
+            ("✓", "模型就绪", theme.success)
         } else if state.error.is_some() {
-            Tag::danger().rounded_full().small().child("模型下载失败")
+            ("✗", "模型下载失败", theme.accent)
         } else {
-            Tag::info().rounded_full().small().child("模型下载中")
+            ("⟳", "模型下载中", theme.foreground)
         };
 
         let mut container = v_flex()
@@ -580,8 +588,18 @@ impl AppView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(status_tag)
-                    .child(div().text_lg().font_semibold().child("准备手势识别模型")),
+                    .child(
+                        div()
+                            .text_color(status_color)
+                            .font_semibold()
+                            .child(format!("{} {}", status_icon, status_text)),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child("准备手势识别模型"),
+                    ),
             )
             .child(
                 div()
@@ -708,24 +726,20 @@ impl AppView {
 
         let camera_shell = div()
             .relative()
-            .w_full()
+            .w(px(panel_width))
             .h(px(camera_height))
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.border)
             .overflow_hidden()
-            .bg(theme.muted)
+            .rounded_t_lg()
+            .bg(gpui::rgb(0x000000))
             .child(frame_view);
 
         let mut picker_panel: Option<AnyElement> = None;
         if self.camera_picker_open && !self.available_cameras.is_empty() {
             let mut list = v_flex()
                 .gap_1()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.muted);
+                .p_3()
+                .rounded_lg()
+                .bg(gpui::rgba(0x1a2332ee));
 
             for (idx, device) in self.available_cameras.iter().enumerate() {
                 let is_selected = self.selected_camera_idx == Some(idx);
@@ -761,9 +775,9 @@ impl AppView {
             .gap_2()
             .child(
                 div()
-                    .text_sm()
-                    .text_color(theme.foreground)
-                    .child(format!("置信度 {confidence_text}")),
+                    .text_xs()
+                    .text_color(gpui::rgb(0xa0aab8))
+                    .child(format!("置信度: {confidence_text}")),
             );
 
         if self.available_cameras.len() > 1 {
@@ -784,45 +798,57 @@ impl AppView {
         }
 
         let mut camera_card = v_flex()
-            .gap_3()
-            .p_4()
+            .w(px(panel_width))
             .rounded_lg()
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.group_box)
-            .w_full()
+            .overflow_hidden()
+            .bg(gpui::rgb(0x0f1419))
             .child(camera_shell)
-            .child(info_row)
             .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(frame_status.clone()),
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .child(info_row)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui::rgb(0x8b95a5))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(frame_status.clone()),
+                    ),
             );
 
         if let Some(picker) = picker_panel {
             camera_card = camera_card.child(picker);
         }
 
-        let camera_ready_tag = if self.latest_frame.is_some() {
-            Tag::success().rounded_full().small().child("摄像头就绪")
+        let (camera_icon, camera_text, camera_color) = if self.latest_frame.is_some() {
+            ("●", "摄像头就绪", theme.success)
         } else {
-            Tag::warning().rounded_full().small().child("等待摄像头")
+            ("○", "等待摄像头", theme.muted_foreground)
         };
 
-        let recognizer_tag = if self.recognizer_handle.is_some() {
-            Tag::success().rounded_full().small().child("识别运行中")
+        let (recognizer_icon, recognizer_text, recognizer_color) = if self.recognizer_handle.is_some() {
+            ("●", "识别运行中", theme.success)
         } else {
-            Tag::secondary().rounded_full().small().child("正在初始化")
+            ("○", "正在初始化", theme.muted_foreground)
         };
 
         let placeholder_block = div()
-            .w_full()
+            .w(px(panel_width))
             .h(px(160.0))
             .rounded_lg()
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.group_box);
+            .bg(gpui::rgb(0x0f1419))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(gpui::rgb(0x4a5568))
+                    .child("预留区域"),
+            );
 
         let panel_handle = div()
             .absolute()
@@ -831,7 +857,7 @@ impl AppView {
             .bottom(px(0.0))
             .w(px(12.0))
             .cursor_ew_resize()
-            .bg(theme.border)
+            .bg(gpui::rgba(0x00000000))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::start_panel_resize))
             .on_mouse_move(cx.listener(Self::update_panel_resize))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_panel_resize))
@@ -850,9 +876,9 @@ impl AppView {
 
         v_flex()
             .size_full()
-            .bg(theme.background)
-            .p_6()
-            .gap_4()
+            .bg(gpui::rgb(0x1a2332))
+            .p_4()
+            .gap_3()
             .when(self.panel_resize_state.is_some(), |this| this.cursor_ew_resize())
             .on_mouse_move(cx.listener(Self::update_panel_resize))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_panel_resize))
@@ -860,13 +886,21 @@ impl AppView {
                 h_flex()
                     .justify_end()
                     .items_center()
-                    .flex_wrap()
+                    .gap_4()
+                    .p_2()
+                    .rounded_lg()
+                    .bg(gpui::rgba(0x1a2332aa))
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .flex_wrap()
-                            .child(recognizer_tag)
-                            .child(camera_ready_tag),
+                        div()
+                            .text_xs()
+                            .text_color(recognizer_color)
+                            .child(format!("{} {}", recognizer_icon, recognizer_text)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(camera_color)
+                            .child(format!("{} {}", camera_icon, camera_text)),
                     ),
             )
             .child(
@@ -1009,7 +1043,7 @@ fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32, f32
         return;
     }
 
-    let line_color = [255u8, 142u8, 82u8, 255u8];
+    let line_color = [96u8, 165u8, 250u8, 0u8];
     for &(a, b) in CONNECTIONS {
         if let (Some(pa), Some(pb)) = (points.get(a), points.get(b)) {
             draw_line(
@@ -1024,7 +1058,7 @@ fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32, f32
         }
     }
 
-    let point_color = [56u8, 163u8, 255u8, 255u8];
+    let point_color = [59u8, 130u8, 246u8, 0u8];
     for &(x, y) in points {
         draw_circle(buffer, width, height, (x as i32, y as i32), 3, point_color);
     }
