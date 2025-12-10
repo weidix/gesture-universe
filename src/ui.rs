@@ -4,7 +4,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use gpui::{
     AnyElement, App, AppContext, Context, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
-    SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
+    SharedString, Styled, StyledImage, Window, WindowOptions, WindowDecorations, TitlebarOptions,
+    div, img, px, WindowControlArea,
 };
 use gpui::prelude::FluentBuilder;
 use gpui_component::{
@@ -68,7 +69,17 @@ pub fn launch_ui(
     result_tx: Sender<GestureResult>,
     recognizer_backend: RecognizerBackend,
 ) -> gpui::Result<()> {
-    app.open_window(WindowOptions::default(), move |window, app| {
+    let window_options = WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some("Gesture Universe".into()),
+            appears_transparent: true,
+            traffic_light_position: None,
+        }),
+        window_decorations: Some(WindowDecorations::Client),
+        ..Default::default()
+    };
+    
+    app.open_window(window_options, move |window, app| {
         let view = app.new(|_| {
             AppView::new(
                 frame_rx,
@@ -876,22 +887,28 @@ impl AppView {
             )
             .child(panel_handle);
 
-        v_flex()
-            .size_full()
-            .bg(gpui::rgb(0x1a2332))
-            .p_4()
-            .gap_3()
-            .when(self.panel_resize_state.is_some(), |this| this.cursor_ew_resize())
-            .on_mouse_move(cx.listener(Self::update_panel_resize))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_panel_resize))
+        // 自定义标题栏
+        let titlebar = h_flex()
+            .window_control_area(WindowControlArea::Drag)
+            .h(px(32.0))
+            .w_full()
+            .px_3()
+            .items_center()
+            .justify_between()
+            .bg(gpui::rgb(0x0f1419))
+            .border_b_1()
+            .border_color(gpui::rgb(0x2d3640))
             .child(
                 h_flex()
-                    .justify_end()
+                    .gap_3()
                     .items_center()
-                    .gap_4()
-                    .p_2()
-                    .rounded_lg()
-                    .bg(gpui::rgba(0x1a2332aa))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_semibold()
+                            .text_color(gpui::rgb(0xe0e0e0))
+                            .child("Gesture Universe"),
+                    )
                     .child(
                         div()
                             .text_xs()
@@ -907,7 +924,61 @@ impl AppView {
             )
             .child(
                 h_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("minimize-button")
+                            .w(px(36.0))
+                            .h(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .window_control_area(WindowControlArea::Min)
+                            .hover(|style| style.bg(gpui::rgb(0x2d3640)))
+                            .text_color(gpui::rgb(0xb0b0b0))
+                            .child("━"),
+                    )
+                    .child(
+                        div()
+                            .id("maximize-button")
+                            .w(px(36.0))
+                            .h(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .window_control_area(WindowControlArea::Max)
+                            .hover(|style| style.bg(gpui::rgb(0x2d3640)))
+                            .text_color(gpui::rgb(0xb0b0b0))
+                            .child("□"),
+                    )
+                    .child(
+                        div()
+                            .id("close-button")
+                            .w(px(36.0))
+                            .h(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .window_control_area(WindowControlArea::Close)
+                            .hover(|style| style.bg(gpui::rgb(0xe81123)))
+                            .text_color(gpui::rgb(0xb0b0b0))
+                            .hover(|style| style.text_color(gpui::rgb(0xffffff)))
+                            .child("✕"),
+                    ),
+            );
+
+        v_flex()
+            .size_full()
+            .bg(gpui::rgb(0x1a2332))
+            .when(self.panel_resize_state.is_some(), |this| this.cursor_ew_resize())
+            .on_mouse_move(cx.listener(Self::update_panel_resize))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_panel_resize))
+            .child(titlebar)
+            .child(
+                h_flex()
+                    .flex_1()
                     .gap_3()
+                    .p_4()
                     .items_start()
                     .child(div().flex_1())
                     .child(right_panel),

@@ -3,6 +3,15 @@ name = "gesture-universe"
 version = "0.1.0"
 edition = "2024"
 
+[target.'cfg(windows)'.build-dependencies]
+
+[[bin]]
+name = "gesture-universe"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+
 [features]
 default = ["camera-nokhwa", "handpose-tract"]
 camera-nokhwa = ["nokhwa"]
