@@ -2,11 +2,11 @@ use std::{mem, sync::Arc, thread};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gpui::{
-    AnyElement, App, AppContext, Context, Image, ImageFormat, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Window, WindowOptions, div,
-    img,
+    AnyElement, App, AppContext, Context, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Render, RenderImage, SharedString, StatefulInteractiveElement, Styled,
+    StyledImage, Window, WindowOptions, div, img, px, rgb, rgba,
 };
-use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
+use image::{Frame as ImageFrame, ImageBuffer, Rgba};
 
 use crate::{
     camera::{self, CameraDevice},
@@ -81,9 +81,10 @@ struct AppView {
     camera_handle: Option<thread::JoinHandle<()>>,
     latest_frame: Option<Frame>,
     latest_result: Option<GestureResult>,
-    latest_image: Option<Arc<Image>>,
+    latest_image: Option<Arc<RenderImage>>,
     download_rx: Receiver<DownloadMessage>,
     _download_handle: thread::JoinHandle<()>,
+    camera_expanded: bool,
 }
 
 enum Screen {
@@ -157,6 +158,7 @@ impl AppView {
             latest_image: None,
             download_rx,
             _download_handle: download_handle,
+            camera_expanded: false,
         }
     }
 
@@ -381,7 +383,7 @@ impl AppView {
         container.into_any_element()
     }
 
-    fn render_main(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> AnyElement {
+    fn render_main(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> AnyElement {
         if let Some(rx) = self.frame_rx.as_ref() {
             while let Ok(frame) = rx.try_recv() {
                 if let Some(image) = frame_to_image(
@@ -405,25 +407,113 @@ impl AppView {
         let frame_status = self
             .latest_frame
             .as_ref()
-            .map(|f| format!("Camera frame: {}x{} (latest)", f.width, f.height))
-            .unwrap_or_else(|| "Camera: waiting for frames...".to_string());
+            .map(|f| format!("摄像头: {}x{} (最新)", f.width, f.height))
+            .unwrap_or_else(|| "摄像头: 等待画面...".to_string());
 
         let gesture_text = self
             .latest_result
             .as_ref()
-            .map(|g| format!("Gesture: {}", g.display_text()))
-            .unwrap_or_else(|| "Gesture: ...".to_string());
+            .map(|g| format!("手势: {}", g.display_text()))
+            .unwrap_or_else(|| "手势: ...".to_string());
+
+        let camera_width = if self.camera_expanded { px(520.0) } else { px(240.0) };
+        let camera_height = if self.camera_expanded { px(390.0) } else { px(180.0) };
 
         let frame_view: AnyElement = if let Some(image) = &self.latest_image {
-            img(image.clone()).into_any_element()
+            img(image.clone())
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+                .into_any_element()
         } else {
-            div().child("No frame yet").into_any_element()
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(rgb(0x9ca3af))
+                .child("等待摄像头...")
+                .into_any_element()
         };
 
+        let camera_shell = div()
+            .w(camera_width)
+            .h(camera_height)
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0x2a2a2a))
+            .overflow_hidden()
+            .bg(rgb(0x0b0b0f))
+            .child(frame_view);
+
+        let toggle_label = if self.camera_expanded {
+            "缩小画面"
+        } else {
+            "放大画面"
+        };
+
+        let camera_panel = div()
+            .absolute()
+            .top(px(12.0))
+            .left(px(12.0))
+            .p_2()
+            .gap_2()
+            .flex()
+            .flex_col()
+            .items_start()
+            .bg(rgba(0x0b1220dd))
+            .rounded_md()
+            .shadow_lg()
+            .border_1()
+            .border_color(rgb(0x1f2937))
+            .child(camera_shell)
+            .child(
+                div()
+                    .w(camera_width)
+                    .flex()
+                    .justify_between()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0xe5e7eb))
+                            .child(frame_status.clone()),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from("camera-size-toggle"))
+                            .px_3()
+                            .py_2()
+                            .rounded_sm()
+                            .bg(rgb(0x2563eb))
+                            .text_color(rgb(0xffffff))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.camera_expanded = !this.camera_expanded;
+                                cx.notify();
+                            }))
+                            .child(toggle_label),
+                    ),
+            );
+
+        let main_panel = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .bg(rgb(0x0f172a))
+            .text_color(rgb(0xe5e7eb))
+            .child(div().text_2xl().child(gesture_text))
+            .child(div().text_sm().text_color(rgb(0x9ca3af)).child(frame_status));
+
         div()
-            .child(div().child(frame_view))
-            .child(div().child(frame_status))
-            .child(div().child(gesture_text))
+            .relative()
+            .size_full()
+            .child(camera_panel)
+            .child(main_panel)
             .into_any_element()
     }
 }
@@ -520,22 +610,21 @@ fn progress_bar_string(downloaded: u64, total: Option<u64>) -> String {
     }
 }
 
-fn frame_to_image(frame: &Frame, overlay: Option<&[(f32, f32)]>) -> Option<Arc<Image>> {
+fn frame_to_image(frame: &Frame, overlay: Option<&[(f32, f32)]>) -> Option<Arc<RenderImage>> {
     let mut rgba = frame.rgba.clone();
     if let Some(points) = overlay {
         draw_skeleton(&mut rgba, frame.width, frame.height, points);
     }
 
-    let mut png_bytes: Vec<u8> = Vec::new();
-    let encoder = PngEncoder::new(&mut png_bytes);
-    if encoder
-        .write_image(&rgba, frame.width, frame.height, ColorType::Rgba8)
-        .is_err()
-    {
-        return None;
+    // GPUI expects BGRA; convert in place to avoid the async asset pipeline and flicker.
+    for px in rgba.chunks_exact_mut(4) {
+        px.swap(0, 2);
     }
 
-    Some(Arc::new(Image::from_bytes(ImageFormat::Png, png_bytes)))
+    let buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(frame.width, frame.height, rgba)?;
+    let frame = ImageFrame::new(buffer);
+
+    Some(Arc::new(RenderImage::new(vec![frame])))
 }
 
 fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32, f32)]) {

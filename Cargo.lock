@@ -2181,7 +2181,7 @@ dependencies = [
  "crossbeam-channel",
  "env_logger",
  "gpui",
- "image 0.24.9",
+ "image",
  "indicatif",
  "log",
  "nokhwa",
@@ -2354,7 +2354,7 @@ dependencies = [
  "gpui_sum_tree",
  "gpui_util",
  "gpui_util_macros",
- "image 0.25.9",
+ "image",
  "inventory",
  "itertools 0.14.0",
  "libc",
@@ -2986,20 +2986,6 @@ dependencies = [
 
 [[package]]
 name = "image"
-version = "0.24.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5690139d2f55868e080017335e4b94cb7414274c74f1669c84fb5feba2c9f69d"
-dependencies = [
- "bytemuck",
- "byteorder",
- "color_quant",
- "jpeg-decoder",
- "num-traits",
- "png 0.17.16",
-]
-
-[[package]]
-name = "image"
 version = "0.25.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6506c6c10786659413faa717ceebcb8f70731c0a60cbae39795fdf114519c1a"
@@ -3226,12 +3212,6 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
 ]
-
-[[package]]
-name = "jpeg-decoder"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
 name = "js-sys"
@@ -3774,7 +3754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4cae50786bfa1214ed441f98addbea51ca1b9aaa9e4bf5369cda36654b3efaa"
 dependencies = [
  "flume",
- "image 0.25.9",
+ "image",
  "nokhwa-bindings-linux",
  "nokhwa-bindings-macos",
  "nokhwa-bindings-windows",
@@ -3829,7 +3809,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "109975552bbd690894f613bce3d408222911e317197c72b2e8b9a1912dc261ae"
 dependencies = [
  "bytes",
- "image 0.25.9",
+ "image",
  "thiserror 2.0.17",
 ]
 
