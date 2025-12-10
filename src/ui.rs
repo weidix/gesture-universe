@@ -6,6 +6,7 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
     SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
 };
+use gpui::prelude::FluentBuilder;
 use gpui_component::{
     ActiveTheme, Root, Selectable, Sizable, StyledExt,
     button::{Button, ButtonVariants},
@@ -981,6 +982,7 @@ impl AppView {
             .bg(theme.background)
             .p_6()
             .gap_4()
+            .when(self.camera_resize_state.is_some(), |this| this.cursor_nwse_resize())
             .on_mouse_move(cx.listener(Self::update_camera_resize))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_camera_resize))
             .child(
