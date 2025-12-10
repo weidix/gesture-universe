@@ -484,10 +484,33 @@ impl AppView {
         self.recognizer_handle = Some(handle);
     }
 
-    fn clamp_camera_size(&self, width: f32, height: f32) -> (f32, f32) {
+    fn camera_aspect_ratio(&self) -> f32 {
+        if let Some(frame) = &self.latest_frame {
+            if frame.height > 0 {
+                return frame.width as f32 / frame.height as f32;
+            }
+        }
+        if self.camera_size.1 > f32::EPSILON {
+            self.camera_size.0 / self.camera_size.1
+        } else {
+            CAMERA_INITIAL_SIZE.0 / CAMERA_INITIAL_SIZE.1
+        }
+    }
+
+    fn clamp_camera_size(&self, target_width: f32, ratio: f32) -> (f32, f32) {
+        let safe_ratio = if ratio.is_normal() { ratio } else { 1.0 };
+        let min_width = CAMERA_MIN_SIZE
+            .0
+            .max(CAMERA_MIN_SIZE.1 * safe_ratio);
+        let max_width = CAMERA_MAX_SIZE
+            .0
+            .min(CAMERA_MAX_SIZE.1 * safe_ratio);
+        let width = target_width.clamp(min_width, max_width);
+        let height = (width / safe_ratio)
+            .clamp(CAMERA_MIN_SIZE.1, CAMERA_MAX_SIZE.1);
         (
-            width.clamp(CAMERA_MIN_SIZE.0, CAMERA_MAX_SIZE.0),
-            height.clamp(CAMERA_MIN_SIZE.1, CAMERA_MAX_SIZE.1),
+            width,
+            height,
         )
     }
 
@@ -520,10 +543,15 @@ impl AppView {
             let delta_x = f32::from(event.position.x) - state.start_pointer.0;
             let delta_y = f32::from(event.position.y) - state.start_pointer.1;
 
-            let (new_w, new_h) = self.clamp_camera_size(
-                state.start_size.0 + delta_x,
-                state.start_size.1 + delta_y,
-            );
+            let ratio = self.camera_aspect_ratio();
+            let width_delta_from_height = delta_y * ratio;
+            let target_width = if width_delta_from_height.abs() > delta_x.abs() {
+                state.start_size.0 + width_delta_from_height
+            } else {
+                state.start_size.0 + delta_x
+            };
+
+            let (new_w, new_h) = self.clamp_camera_size(target_width, ratio);
 
             if (new_w - self.camera_size.0).abs() > f32::EPSILON
                 || (new_h - self.camera_size.1).abs() > f32::EPSILON
@@ -693,7 +721,8 @@ impl AppView {
             .map(|r| format!("{:.0}%", r.confidence * 100.0))
             .unwrap_or_else(|| "--".to_string());
 
-        let (width, height) = self.clamp_camera_size(self.camera_size.0, self.camera_size.1);
+        let ratio = self.camera_aspect_ratio();
+        let (width, height) = self.clamp_camera_size(self.camera_size.0, ratio);
         self.camera_size = (width, height);
 
         let camera_width = px(width);
@@ -702,7 +731,7 @@ impl AppView {
         let frame_view: AnyElement = if let Some(image) = &self.latest_image {
             img(image.clone())
                 .size_full()
-                .object_fit(ObjectFit::Cover)
+                .object_fit(ObjectFit::Contain)
                 .into_any_element()
         } else {
             div()
@@ -718,15 +747,10 @@ impl AppView {
 
         let resize_handle = div()
             .absolute()
-            .bottom(px(8.0))
-            .right(px(8.0))
-            .w(px(18.0))
-            .h(px(18.0))
-            .rounded_md()
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.background)
-            .shadow_sm()
+            .bottom(px(6.0))
+            .right(px(6.0))
+            .w(px(28.0))
+            .h(px(28.0))
             .cursor_nwse_resize()
             .on_mouse_down(MouseButton::Left, cx.listener(Self::start_camera_resize))
             .on_mouse_move(cx.listener(Self::update_camera_resize))
@@ -735,18 +759,27 @@ impl AppView {
             .child(
                 div()
                     .absolute()
-                    .bottom(px(4.0))
-                    .right(px(4.0))
-                    .w(px(10.0))
+                    .bottom(px(6.0))
+                    .right(px(6.0))
+                    .w(px(8.0))
                     .h(px(2.0))
                     .bg(theme.border),
             )
             .child(
                 div()
                     .absolute()
-                    .bottom(px(7.0))
-                    .right(px(7.0))
-                    .w(px(7.0))
+                    .bottom(px(12.0))
+                    .right(px(12.0))
+                    .w(px(12.0))
+                    .h(px(2.0))
+                    .bg(theme.border),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .bottom(px(18.0))
+                    .right(px(18.0))
+                    .w(px(16.0))
                     .h(px(2.0))
                     .bg(theme.border),
             );
@@ -948,6 +981,8 @@ impl AppView {
             .bg(theme.background)
             .p_6()
             .gap_4()
+            .on_mouse_move(cx.listener(Self::update_camera_resize))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_camera_resize))
             .child(
                 h_flex()
                     .justify_end()
