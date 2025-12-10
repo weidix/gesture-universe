@@ -2,11 +2,9 @@ use std::{mem, sync::Arc, thread};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gpui::{
-    AnyElement, App, AppContext, Context, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
-    SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
+    AnyElement, App, AppContext, Context, IntoElement, ObjectFit, ParentElement, Render,
+    RenderImage, SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
 };
-use gpui::prelude::FluentBuilder;
 use gpui_component::{
     ActiveTheme, Root, Selectable, Sizable, StyledExt,
     button::{Button, ButtonVariants},
@@ -53,7 +51,7 @@ const SKELETON_LINE_THICKNESS: i32 = 3;
 
 const CAMERA_MIN_SIZE: (f32, f32) = (240.0, 180.0);
 const CAMERA_MAX_SIZE: (f32, f32) = (720.0, 540.0);
-const CAMERA_INITIAL_SIZE: (f32, f32) = (360.0, 270.0);
+const DEFAULT_CAMERA_RATIO: f32 = 4.0 / 3.0;
 
 pub fn launch_ui(
     app: &mut App,
@@ -102,8 +100,6 @@ struct AppView {
     latest_image: Option<Arc<RenderImage>>,
     download_rx: Receiver<DownloadMessage>,
     _download_handle: thread::JoinHandle<()>,
-    camera_size: (f32, f32),
-    camera_resize_state: Option<CameraResizeState>,
     camera_picker_open: bool,
 }
 
@@ -150,11 +146,6 @@ enum DownloadMessage {
     Error(String),
 }
 
-struct CameraResizeState {
-    start_pointer: (f32, f32),
-    start_size: (f32, f32),
-}
-
 impl AppView {
     fn new(
         frame_rx: Receiver<Frame>,
@@ -193,8 +184,6 @@ impl AppView {
             latest_image: None,
             download_rx,
             _download_handle: download_handle,
-            camera_size: CAMERA_INITIAL_SIZE,
-            camera_resize_state: None,
             camera_picker_open: false,
         }
     }
@@ -491,87 +480,7 @@ impl AppView {
                 return frame.width as f32 / frame.height as f32;
             }
         }
-        if self.camera_size.1 > f32::EPSILON {
-            self.camera_size.0 / self.camera_size.1
-        } else {
-            CAMERA_INITIAL_SIZE.0 / CAMERA_INITIAL_SIZE.1
-        }
-    }
-
-    fn clamp_camera_size(&self, target_width: f32, ratio: f32) -> (f32, f32) {
-        let safe_ratio = if ratio.is_normal() { ratio } else { 1.0 };
-        let min_width = CAMERA_MIN_SIZE
-            .0
-            .max(CAMERA_MIN_SIZE.1 * safe_ratio);
-        let max_width = CAMERA_MAX_SIZE
-            .0
-            .min(CAMERA_MAX_SIZE.1 * safe_ratio);
-        let width = target_width.clamp(min_width, max_width);
-        let height = (width / safe_ratio)
-            .clamp(CAMERA_MIN_SIZE.1, CAMERA_MAX_SIZE.1);
-        (
-            width,
-            height,
-        )
-    }
-
-    fn start_camera_resize(
-        &mut self,
-        event: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.camera_resize_state = Some(CameraResizeState {
-            start_pointer: (f32::from(event.position.x), f32::from(event.position.y)),
-            start_size: self.camera_size,
-        });
-        cx.notify();
-    }
-
-    fn update_camera_resize(
-        &mut self,
-        event: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if let Some(state) = &self.camera_resize_state {
-            if !event.dragging() {
-                self.camera_resize_state = None;
-                cx.notify();
-                return;
-            }
-
-            let delta_x = f32::from(event.position.x) - state.start_pointer.0;
-            let delta_y = f32::from(event.position.y) - state.start_pointer.1;
-
-            let ratio = self.camera_aspect_ratio();
-            let width_delta_from_height = delta_y * ratio;
-            let target_width = if width_delta_from_height.abs() > delta_x.abs() {
-                state.start_size.0 + width_delta_from_height
-            } else {
-                state.start_size.0 + delta_x
-            };
-
-            let (new_w, new_h) = self.clamp_camera_size(target_width, ratio);
-
-            if (new_w - self.camera_size.0).abs() > f32::EPSILON
-                || (new_h - self.camera_size.1).abs() > f32::EPSILON
-            {
-                self.camera_size = (new_w, new_h);
-                cx.notify();
-            }
-        }
-    }
-
-    fn finish_camera_resize(
-        &mut self,
-        _: &MouseUpEvent,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.camera_resize_state.take().is_some() {
-            cx.notify();
-        }
+        DEFAULT_CAMERA_RATIO
     }
 
     fn render_download_view(
@@ -698,23 +607,11 @@ impl AppView {
                 }
             });
 
-        let resolution_label = self
-            .latest_frame
-            .as_ref()
-            .map(|f| format!("{}x{}", f.width, f.height))
-            .unwrap_or_else(|| "等待画面".to_string());
-
         let frame_status = self
             .latest_frame
             .as_ref()
             .map(|f| format!("摄像头: {camera_label} {}x{} (最新)", f.width, f.height))
             .unwrap_or_else(|| format!("摄像头: {camera_label}，等待画面..."));
-
-        let gesture_text = self
-            .latest_result
-            .as_ref()
-            .map(|g| format!("手势: {}", g.display_text()))
-            .unwrap_or_else(|| "手势: ...".to_string());
 
         let confidence_text = self
             .latest_result
@@ -723,11 +620,11 @@ impl AppView {
             .unwrap_or_else(|| "--".to_string());
 
         let ratio = self.camera_aspect_ratio();
-        let (width, height) = self.clamp_camera_size(self.camera_size.0, ratio);
-        self.camera_size = (width, height);
-
-        let camera_width = px(width);
-        let camera_height = px(height);
+        let preferred_height = {
+            let max_from_width = CAMERA_MAX_SIZE.0 / ratio;
+            let clamped = max_from_width.min(CAMERA_MAX_SIZE.1);
+            clamped.max(CAMERA_MIN_SIZE.1)
+        };
 
         let frame_view: AnyElement = if let Some(image) = &self.latest_image {
             img(image.clone())
@@ -746,89 +643,16 @@ impl AppView {
                 .into_any_element()
         };
 
-        let resize_handle = div()
-            .absolute()
-            .bottom(px(6.0))
-            .right(px(6.0))
-            .w(px(28.0))
-            .h(px(28.0))
-            .cursor_nwse_resize()
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::start_camera_resize))
-            .on_mouse_move(cx.listener(Self::update_camera_resize))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_camera_resize))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::finish_camera_resize))
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(6.0))
-                    .right(px(6.0))
-                    .w(px(8.0))
-                    .h(px(2.0))
-                    .bg(theme.border),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(12.0))
-                    .right(px(12.0))
-                    .w(px(12.0))
-                    .h(px(2.0))
-                    .bg(theme.border),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(18.0))
-                    .right(px(18.0))
-                    .w(px(16.0))
-                    .h(px(2.0))
-                    .bg(theme.border),
-            );
-
         let camera_shell = div()
             .relative()
-            .w(camera_width)
-            .h(camera_height)
+            .w_full()
+            .h(px(preferred_height))
             .rounded_lg()
             .border_1()
             .border_color(theme.border)
             .overflow_hidden()
             .bg(theme.muted)
-            .child(frame_view)
-            .child(resize_handle);
-
-        let mut control_actions = h_flex()
-            .gap_2()
-            .items_center()
-            .child(
-                Tag::secondary()
-                    .rounded_full()
-                    .small()
-                    .child(format!("{width:.0}×{height:.0}")),
-            )
-            .child(
-                Tag::info()
-                    .rounded_full()
-                    .small()
-                    .child("拖拽右下角调整大小"),
-            );
-
-        if self.available_cameras.len() > 1 {
-            let picker_label = if self.camera_picker_open {
-                "关闭摄像头选择"
-            } else {
-                "选择摄像头"
-            };
-            control_actions = control_actions.child(
-                Button::new(SharedString::from("camera-picker-toggle"))
-                    .outline()
-                    .label(picker_label)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.camera_picker_open = !this.camera_picker_open;
-                        cx.notify();
-                    })),
-            );
-        }
+            .child(frame_view);
 
         let mut picker_panel: Option<AnyElement> = None;
         if self.camera_picker_open && !self.available_cameras.is_empty() {
@@ -868,6 +692,34 @@ impl AppView {
             );
         }
 
+        let mut info_row = h_flex()
+            .justify_between()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme.foreground)
+                    .child(format!("置信度 {confidence_text}")),
+            );
+
+        if self.available_cameras.len() > 1 {
+            let picker_label = if self.camera_picker_open {
+                "关闭摄像头选择"
+            } else {
+                "选择摄像头"
+            };
+            info_row = info_row.child(
+                Button::new(SharedString::from("camera-picker-toggle"))
+                    .outline()
+                    .label(picker_label)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.camera_picker_open = !this.camera_picker_open;
+                        cx.notify();
+                    })),
+            );
+        }
+
         let mut camera_card = v_flex()
             .gap_3()
             .p_4()
@@ -875,40 +727,12 @@ impl AppView {
             .border_1()
             .border_color(theme.border)
             .bg(theme.group_box)
-            .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(Tag::secondary().rounded_full().small().child("摄像头"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(camera_label.clone()),
-                            ),
-                    )
-                    .child(control_actions),
-            )
+            .w_full()
             .child(camera_shell)
+            .child(info_row)
             .child(
                 div()
                     .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(format!(
-                        "调整范围 {}×{} 至 {}×{}",
-                        CAMERA_MIN_SIZE.0 as u32,
-                        CAMERA_MIN_SIZE.1 as u32,
-                        CAMERA_MAX_SIZE.0 as u32,
-                        CAMERA_MAX_SIZE.1 as u32,
-                    )),
-            )
-            .child(
-                div()
-                    .text_sm()
                     .text_color(theme.muted_foreground)
                     .child(frame_status.clone()),
             );
@@ -916,54 +740,6 @@ impl AppView {
         if let Some(picker) = picker_panel {
             camera_card = camera_card.child(picker);
         }
-
-        let backend_label = match self.recognizer_backend {
-            RecognizerBackend::Placeholder => "占位推理",
-            #[cfg(feature = "handpose-tract")]
-            RecognizerBackend::HandposeTract { .. } => "Tract/ONNX",
-        };
-
-        let hero_card = v_flex()
-            .gap_4()
-            .p_6()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.group_box)
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .flex_wrap()
-                    .child(Tag::primary().rounded_full().small().child("实时手势"))
-                    .child(Tag::info().rounded_full().small().child(backend_label)),
-            )
-            .child(
-                div()
-                    .text_2xl()
-                    .font_semibold()
-                    .text_color(theme.foreground)
-                    .child(gesture_text),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .child(Tag::secondary().rounded_full().child(camera_label.clone()))
-                    .child(Tag::info().rounded_full().child(resolution_label)),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(frame_status),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.foreground)
-                    .child(format!("置信度 {confidence_text}")),
-            );
 
         let camera_ready_tag = if self.latest_frame.is_some() {
             Tag::success().rounded_full().small().child("摄像头就绪")
@@ -982,9 +758,6 @@ impl AppView {
             .bg(theme.background)
             .p_6()
             .gap_4()
-            .when(self.camera_resize_state.is_some(), |this| this.cursor_nwse_resize())
-            .on_mouse_move(cx.listener(Self::update_camera_resize))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_camera_resize))
             .child(
                 h_flex()
                     .justify_end()
@@ -999,12 +772,7 @@ impl AppView {
                     ),
             )
             .child(
-                h_flex()
-                    .gap_4()
-                    .items_start()
-                    .flex_wrap()
-                    .child(hero_card.flex_1())
-                    .child(camera_card),
+                camera_card,
             )
             .into_any_element()
     }

@@ -11,6 +11,7 @@ pub struct Frame {
 
 #[derive(Clone, Debug)]
 pub struct GestureResult {
+    #[allow(dead_code)]
     pub label: String,
     pub confidence: f32,
     #[allow(dead_code)]
@@ -19,6 +20,7 @@ pub struct GestureResult {
 }
 
 impl GestureResult {
+    #[allow(dead_code)]
     pub fn display_text(&self) -> String {
         format!("{} ({:.0}%)", self.label, self.confidence * 100.0)
     }
