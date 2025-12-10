@@ -64,7 +64,7 @@ fn start_placeholder_worker(
     result_tx: Sender<GestureResult>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        while let Ok(frame) = frame_rx.recv() {
+        while let Some(frame) = recv_latest_frame(&frame_rx) {
             let gesture = classify_brightness(&frame);
             let _ = result_tx.try_send(gesture);
         }
@@ -101,7 +101,7 @@ fn start_tract_worker(
             }
         };
 
-        while let Ok(frame) = frame_rx.recv() {
+        while let Some(frame) = recv_latest_frame(&frame_rx) {
             match model.infer(&frame) {
                 Ok(gesture) => {
                     let _ = result_tx.try_send(gesture);
@@ -112,6 +112,15 @@ fn start_tract_worker(
             }
         }
     })
+}
+
+fn recv_latest_frame(frame_rx: &Receiver<Frame>) -> Option<Frame> {
+    let mut frame = frame_rx.recv().ok()?;
+    // Drop stale frames if the recognizer is still busy to avoid backlog.
+    while let Ok(newer) = frame_rx.try_recv() {
+        frame = newer;
+    }
+    Some(frame)
 }
 
 fn classify_brightness(frame: &Frame) -> GestureResult {

@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -17,6 +17,10 @@ use nokhwa::{
 };
 
 use crate::types::Frame;
+
+// Limit the number of frames we hand over to the recognizer to reduce load.
+const RECOGNIZER_TARGET_FPS: u64 = 10;
+const RECOGNIZER_FRAME_INTERVAL: Duration = Duration::from_millis(1_000 / RECOGNIZER_TARGET_FPS);
 
 #[derive(Clone, Debug)]
 pub struct CameraDevice {
@@ -89,6 +93,8 @@ pub fn start_camera_stream(
     let stop_flag = stop.clone();
 
     let handle = thread::spawn(move || {
+        let mut last_recog_frame = Instant::now() - RECOGNIZER_FRAME_INTERVAL;
+
         let mut camera = match build_camera(index) {
             Ok(cam) => cam,
             Err(err) => {
@@ -126,15 +132,29 @@ pub fn start_camera_stream(
                 rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
             }
 
+            let frame_timestamp = Instant::now();
             let frame = Frame {
                 rgba,
                 width,
                 height,
-                timestamp: Instant::now(),
+                timestamp: frame_timestamp,
             };
 
-            let _ = ui_tx.try_send(frame.clone());
-            let _ = recog_tx.try_send(frame);
+            let should_queue_recog = last_recog_frame.elapsed() >= RECOGNIZER_FRAME_INTERVAL;
+            let recog_frame = if should_queue_recog {
+                Some(frame.clone())
+            } else {
+                None
+            };
+
+            // Send the raw frame to the UI; if the UI queue is full we drop it.
+            let _ = ui_tx.try_send(frame);
+
+            // Throttle recognizer input to ~10fps and drop if the worker is busy.
+            if let Some(frame) = recog_frame {
+                last_recog_frame = frame_timestamp;
+                let _ = recog_tx.try_send(frame);
+            }
         }
     });
 

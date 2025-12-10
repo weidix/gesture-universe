@@ -6,8 +6,11 @@ use gpui::{
     RenderImage, SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
 };
 use gpui_component::{
-    ActiveTheme, Root, Selectable, Sizable, StyledExt, button::{Button, ButtonVariants}, h_flex,
-    tag::Tag, v_flex,
+    ActiveTheme, Root, Selectable, Sizable, StyledExt,
+    button::{Button, ButtonVariants},
+    h_flex,
+    tag::Tag,
+    v_flex,
 };
 use image::{Frame as ImageFrame, ImageBuffer, Rgba};
 
