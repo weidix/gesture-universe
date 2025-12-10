@@ -2,8 +2,9 @@ use std::{mem, sync::Arc, thread};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gpui::{
-    AnyElement, App, AppContext, Context, IntoElement, ObjectFit, ParentElement, Render,
-    RenderImage, SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
+    AnyElement, App, AppContext, Context, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
+    SharedString, Styled, StyledImage, Window, WindowOptions, div, img, px,
 };
 use gpui_component::{
     ActiveTheme, Root, Selectable, Sizable, StyledExt,
@@ -46,6 +47,12 @@ const CONNECTIONS: &[(usize, usize)] = &[
     (9, 13),
     (13, 17),
 ];
+
+const SKELETON_LINE_THICKNESS: i32 = 3;
+
+const CAMERA_MIN_SIZE: (f32, f32) = (240.0, 180.0);
+const CAMERA_MAX_SIZE: (f32, f32) = (720.0, 540.0);
+const CAMERA_INITIAL_SIZE: (f32, f32) = (360.0, 270.0);
 
 pub fn launch_ui(
     app: &mut App,
@@ -94,7 +101,8 @@ struct AppView {
     latest_image: Option<Arc<RenderImage>>,
     download_rx: Receiver<DownloadMessage>,
     _download_handle: thread::JoinHandle<()>,
-    camera_expanded: bool,
+    camera_size: (f32, f32),
+    camera_resize_state: Option<CameraResizeState>,
     camera_picker_open: bool,
 }
 
@@ -141,6 +149,11 @@ enum DownloadMessage {
     Error(String),
 }
 
+struct CameraResizeState {
+    start_pointer: (f32, f32),
+    start_size: (f32, f32),
+}
+
 impl AppView {
     fn new(
         frame_rx: Receiver<Frame>,
@@ -179,7 +192,8 @@ impl AppView {
             latest_image: None,
             download_rx,
             _download_handle: download_handle,
-            camera_expanded: false,
+            camera_size: CAMERA_INITIAL_SIZE,
+            camera_resize_state: None,
             camera_picker_open: false,
         }
     }
@@ -470,6 +484,67 @@ impl AppView {
         self.recognizer_handle = Some(handle);
     }
 
+    fn clamp_camera_size(&self, width: f32, height: f32) -> (f32, f32) {
+        (
+            width.clamp(CAMERA_MIN_SIZE.0, CAMERA_MAX_SIZE.0),
+            height.clamp(CAMERA_MIN_SIZE.1, CAMERA_MAX_SIZE.1),
+        )
+    }
+
+    fn start_camera_resize(
+        &mut self,
+        event: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.camera_resize_state = Some(CameraResizeState {
+            start_pointer: (f32::from(event.position.x), f32::from(event.position.y)),
+            start_size: self.camera_size,
+        });
+        cx.notify();
+    }
+
+    fn update_camera_resize(
+        &mut self,
+        event: &MouseMoveEvent,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(state) = &self.camera_resize_state {
+            if !event.dragging() {
+                self.camera_resize_state = None;
+                cx.notify();
+                return;
+            }
+
+            let delta_x = f32::from(event.position.x) - state.start_pointer.0;
+            let delta_y = f32::from(event.position.y) - state.start_pointer.1;
+
+            let (new_w, new_h) = self.clamp_camera_size(
+                state.start_size.0 + delta_x,
+                state.start_size.1 + delta_y,
+            );
+
+            if (new_w - self.camera_size.0).abs() > f32::EPSILON
+                || (new_h - self.camera_size.1).abs() > f32::EPSILON
+            {
+                self.camera_size = (new_w, new_h);
+                cx.notify();
+            }
+        }
+    }
+
+    fn finish_camera_resize(
+        &mut self,
+        _: &MouseUpEvent,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.camera_resize_state.take().is_some() {
+            cx.notify();
+        }
+    }
+
     fn render_download_view(
         &self,
         state: &DownloadState,
@@ -618,11 +693,11 @@ impl AppView {
             .map(|r| format!("{:.0}%", r.confidence * 100.0))
             .unwrap_or_else(|| "--".to_string());
 
-        let (camera_width, camera_height) = if self.camera_expanded {
-            (px(420.0), px(320.0))
-        } else {
-            (px(260.0), px(190.0))
-        };
+        let (width, height) = self.clamp_camera_size(self.camera_size.0, self.camera_size.1);
+        self.camera_size = (width, height);
+
+        let camera_width = px(width);
+        let camera_height = px(height);
 
         let frame_view: AnyElement = if let Some(image) = &self.latest_image {
             img(image.clone())
@@ -641,7 +716,43 @@ impl AppView {
                 .into_any_element()
         };
 
+        let resize_handle = div()
+            .absolute()
+            .bottom(px(8.0))
+            .right(px(8.0))
+            .w(px(18.0))
+            .h(px(18.0))
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.background)
+            .shadow_sm()
+            .cursor_nwse_resize()
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::start_camera_resize))
+            .on_mouse_move(cx.listener(Self::update_camera_resize))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_camera_resize))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::finish_camera_resize))
+            .child(
+                div()
+                    .absolute()
+                    .bottom(px(4.0))
+                    .right(px(4.0))
+                    .w(px(10.0))
+                    .h(px(2.0))
+                    .bg(theme.border),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .bottom(px(7.0))
+                    .right(px(7.0))
+                    .w(px(7.0))
+                    .h(px(2.0))
+                    .bg(theme.border),
+            );
+
         let camera_shell = div()
+            .relative()
             .w(camera_width)
             .h(camera_height)
             .rounded_lg()
@@ -649,23 +760,24 @@ impl AppView {
             .border_color(theme.border)
             .overflow_hidden()
             .bg(theme.muted)
-            .child(frame_view);
+            .child(frame_view)
+            .child(resize_handle);
 
-        let toggle_label = if self.camera_expanded {
-            "缩小画面"
-        } else {
-            "放大画面"
-        };
-
-        let mut control_actions = h_flex().gap_2().child(
-            Button::new(SharedString::from("camera-size-toggle"))
-                .outline()
-                .label(toggle_label)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.camera_expanded = !this.camera_expanded;
-                    cx.notify();
-                })),
-        );
+        let mut control_actions = h_flex()
+            .gap_2()
+            .items_center()
+            .child(
+                Tag::secondary()
+                    .rounded_full()
+                    .small()
+                    .child(format!("{width:.0}×{height:.0}")),
+            )
+            .child(
+                Tag::info()
+                    .rounded_full()
+                    .small()
+                    .child("拖拽右下角调整大小"),
+            );
 
         if self.available_cameras.len() > 1 {
             let picker_label = if self.camera_picker_open {
@@ -748,6 +860,18 @@ impl AppView {
                     .child(control_actions),
             )
             .child(camera_shell)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(format!(
+                        "调整范围 {}×{} 至 {}×{}",
+                        CAMERA_MIN_SIZE.0 as u32,
+                        CAMERA_MIN_SIZE.1 as u32,
+                        CAMERA_MAX_SIZE.0 as u32,
+                        CAMERA_MAX_SIZE.1 as u32,
+                    )),
+            )
             .child(
                 div()
                     .text_sm()
@@ -981,7 +1105,15 @@ fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32, f32
     let line_color = [255u8, 142u8, 82u8, 255u8];
     for &(a, b) in CONNECTIONS {
         if let (Some(pa), Some(pb)) = (points.get(a), points.get(b)) {
-            draw_line(buffer, width, height, pa, pb, line_color);
+            draw_line(
+                buffer,
+                width,
+                height,
+                pa,
+                pb,
+                line_color,
+                SKELETON_LINE_THICKNESS,
+            );
         }
     }
 
@@ -998,6 +1130,7 @@ fn draw_line(
     p0: &(f32, f32),
     p1: &(f32, f32),
     color: [u8; 4],
+    thickness: i32,
 ) {
     let (mut x0, mut y0) = (p0.0 as i32, p0.1 as i32);
     let (x1, y1) = (p1.0 as i32, p1.1 as i32);
@@ -1006,9 +1139,22 @@ fn draw_line(
     let dy = -(y1 - y0).abs();
     let sy = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
+    let radius = (thickness.max(1) - 1) / 2;
 
     loop {
         put_pixel_safe(buffer, width, height, x0, y0, color);
+        if radius > 0 {
+            for ox in -radius..=radius {
+                for oy in -radius..=radius {
+                    if ox == 0 && oy == 0 {
+                        continue;
+                    }
+                    if ox.abs() + oy.abs() <= radius {
+                        put_pixel_safe(buffer, width, height, x0 + ox, y0 + oy, color);
+                    }
+                }
+            }
+        }
         if x0 == x1 && y0 == y1 {
             break;
         }
