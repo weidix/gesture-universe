@@ -64,14 +64,7 @@ pub fn available_cameras() -> Result<Vec<CameraDevice>> {
 }
 
 fn format_camera_label(info: &CameraInfo) -> String {
-    let name = info.human_name();
-    let desc = info.description().trim();
-    let index = info.index().as_string();
-    if desc.is_empty() || desc == "N/A" {
-        format!("{name} (#{index})")
-    } else {
-        format!("{name} ({desc}, #{index})")
-    }
+    info.human_name()
 }
 
 fn build_camera(index: CameraIndex) -> Result<Camera> {

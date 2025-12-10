@@ -1,6 +1,6 @@
 use super::{
     div, h_flex, AppView, AnyElement, Context, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Styled, StyledExt, Window, WindowControlArea, px,
+    Styled, Window, WindowControlArea, px,
 };
 
 #[cfg(target_os = "windows")]
@@ -19,18 +19,14 @@ impl AppView {
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let titlebar_height = px(32.0);
-        let titlebar_bg = gpui::rgb(0x0d1117);
-        let border_color = gpui::rgb(0x21262d);
+        let titlebar_bg = gpui::rgb(0x1a2332);
         
-        // Windows 风格的按钮
         #[cfg(target_os = "windows")]
         let controls = self.render_windows_controls(window, cx);
         
-        // macOS 风格的按钮
         #[cfg(target_os = "macos")]
         let controls = self.render_macos_controls(window, cx);
         
-        // Linux 风格的按钮
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let controls = self.render_linux_controls(window, cx);
 
@@ -41,20 +37,13 @@ impl AppView {
             .items_center()
             .justify_between()
             .bg(titlebar_bg)
-            .border_b_1()
-            .border_color(border_color)
             .child(
                 h_flex()
                     .gap_3()
-                    .px_3()
+                    .pl(px(80.0))
+                    .pr_3()
+                    .h_full()
                     .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_semibold()
-                            .text_color(gpui::rgb(0xc9d1d9))
-                            .child("Gesture Universe"),
-                    )
                     .child(
                         div()
                             .px_2()
@@ -94,7 +83,6 @@ impl AppView {
         
         let button_hover_color = gpui::rgb(0x404040);
         
-        // 使用 Segoe Fluent Icons 字体（Windows 11）或 Segoe MDL2 Assets（Windows 10）
         let font_family: SharedString = "Segoe Fluent Icons".into();
         
         div()
@@ -160,43 +148,7 @@ impl AppView {
 
     #[cfg(target_os = "macos")]
     fn render_macos_controls(&self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> AnyElement {
-        let traffic_light_size = px(12.0);
-        let traffic_light_gap = px(8.0);
-        
-        h_flex()
-            .gap(traffic_light_gap)
-            .px_2()
-            .child(
-                div()
-                    .id("mac-close")
-                    .size(traffic_light_size)
-                    .rounded_full()
-                    .bg(gpui::rgb(0xff5f56))
-                    .cursor_pointer()
-                    .window_control_area(WindowControlArea::Close)
-                    .hover(|s| s.bg(gpui::rgb(0xff3b30))),
-            )
-            .child(
-                div()
-                    .id("mac-minimize")
-                    .size(traffic_light_size)
-                    .rounded_full()
-                    .bg(gpui::rgb(0xffbd2e))
-                    .cursor_pointer()
-                    .window_control_area(WindowControlArea::Min)
-                    .hover(|s| s.bg(gpui::rgb(0xffa500))),
-            )
-            .child(
-                div()
-                    .id("mac-maximize")
-                    .size(traffic_light_size)
-                    .rounded_full()
-                    .bg(gpui::rgb(0x27c93f))
-                    .cursor_pointer()
-                    .window_control_area(WindowControlArea::Max)
-                    .hover(|s| s.bg(gpui::rgb(0x00d100))),
-            )
-            .into_any_element()
+        div().into_any_element()
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]

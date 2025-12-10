@@ -1,7 +1,7 @@
 use super::{
     h_flex, v_flex, ActiveTheme, AnyElement, AppView, Button, Context, IntoElement, FluentBuilder,
     InteractiveElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
-    PanelResizeState, ParentElement, Selectable, SharedString, Styled, StyledImage, Tag, Window,
+    PanelResizeState, ParentElement, SharedString, Styled, StyledImage, Window,
     DEFAULT_CAMERA_RATIO, RIGHT_PANEL_MAX_WIDTH, RIGHT_PANEL_MIN_WIDTH,
 };
 use super::render_util::frame_to_image;
@@ -42,8 +42,6 @@ impl AppView {
             }
         }
         self.frame_rx = frame_rx;
-
-        let theme = cx.theme();
 
         let camera_label = self
             .selected_camera_idx
@@ -90,7 +88,7 @@ impl AppView {
                 .items_center()
                 .justify_center()
                 .text_sm()
-                .text_color(theme.muted_foreground)
+                .text_color(gpui::rgb(0x8b95a5))
                 .rounded_t_lg()
                 .child("等待摄像头...")
                 .into_any_element()
@@ -107,36 +105,28 @@ impl AppView {
 
         let mut picker_panel: Option<AnyElement> = None;
         if self.camera_picker_open && !self.available_cameras.is_empty() {
-            let mut list = v_flex()
-                .gap_1()
-                .p_3()
-                .rounded_lg()
-                .bg(gpui::rgba(0x1a2332ee));
-
-            for (idx, device) in self.available_cameras.iter().enumerate() {
-                let is_selected = self.selected_camera_idx == Some(idx);
-                list = list.child(
-                    Button::new(SharedString::from(format!("camera-picker-{idx}")))
-                        .label(device.label.clone())
-                        .selected(is_selected)
-                        .outline()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.switch_camera(idx);
-                            cx.notify();
-                        })),
-                );
-            }
-
-            if let Some(err) = &self.camera_error {
-                list = list.child(Tag::danger().rounded_full().child(err.clone()));
-            }
-
-            picker_panel = Some(list.into_any_element());
+            picker_panel = Some(self.render_camera_picker_main(cx));
         } else if let Some(err) = &self.camera_error {
             picker_panel = Some(
-                Tag::danger()
-                    .rounded_full()
-                    .child(err.clone())
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .p_3()
+                    .rounded_lg()
+                    .bg(gpui::rgba(0xef444433))
+                    .border_1()
+                    .border_color(gpui::rgba(0xef4444ff))
+                    .child(
+                        super::div()
+                            .text_base()
+                            .child("⚠️")
+                    )
+                    .child(
+                        super::div()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xfca5a5))
+                            .child(err.clone())
+                    )
                     .into_any_element(),
             );
         }
@@ -154,9 +144,9 @@ impl AppView {
 
         if self.available_cameras.len() > 1 {
             let picker_label = if self.camera_picker_open {
-                "关闭摄像头选择"
+                "◉ 关闭"
             } else {
-                "选择摄像头"
+                "◉ 切换"
             };
             info_row = info_row.child(
                 Button::new(SharedString::from("camera-picker-toggle"))
@@ -169,32 +159,51 @@ impl AppView {
             );
         }
 
-        let mut camera_card = v_flex()
+        let mut camera_card = super::div()
+            .relative()
             .w(super::px(panel_width))
-            .rounded_lg()
-            .overflow_hidden()
-            .bg(gpui::rgb(0x0f1419))
-            .child(camera_shell)
             .child(
                 v_flex()
-                    .gap_2()
-                    .p_3()
-                    .child(info_row)
+                    .w_full()
+                    .rounded_lg()
+                    .overflow_hidden()
+                    .bg(gpui::rgb(0x0f1419))
+                    .child(camera_shell)
                     .child(
-                        super::div()
-                            .text_xs()
-                            .text_color(gpui::rgb(0x8b95a5))
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .child(frame_status.clone()),
+                        v_flex()
+                            .gap_2()
+                            .p_3()
+                            .child(info_row)
+                            .child(
+                                super::div()
+                                    .text_xs()
+                                    .text_color(gpui::rgb(0x8b95a5))
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .child(frame_status.clone()),
+                            ),
                     ),
             );
 
         if let Some(picker) = picker_panel {
-            camera_card = camera_card.child(picker);
+            camera_card = camera_card.child(
+                super::div()
+                    .absolute()
+                    .top(super::px(16.0))
+                    .left_1_2()
+                    .w(super::px((panel_width * 0.85).min(400.0)))
+                    .child(
+                        super::div()
+                            .relative()
+                            .left(super::px(-(panel_width * 0.85).min(400.0) / 2.0))
+                            .child(picker)
+                    )
+            );
         }
 
+        let theme = cx.theme();
+        
         let (camera_icon, camera_text, camera_color) = if self.latest_frame.is_some() {
             ("●", "摄像头就绪", theme.success)
         } else {

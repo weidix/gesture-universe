@@ -9,7 +9,7 @@ use gpui::{
 };
 use gpui::prelude::FluentBuilder;
 use gpui_component::{
-    ActiveTheme, Root, Selectable, StyledExt,
+    ActiveTheme, Root, StyledExt,
     button::{Button, ButtonVariants},
     h_flex,
     tag::Tag,
