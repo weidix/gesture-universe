@@ -7,13 +7,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use crossbeam_channel::Sender;
 use nokhwa::{
     Camera,
     pixel_format::RgbFormat,
     query,
-    utils::{ApiBackend, CameraIndex, CameraInfo, RequestedFormat, RequestedFormatType},
+    utils::{
+        ApiBackend, CameraIndex, CameraInfo, FrameFormat, RequestedFormat, RequestedFormatType,
+    },
 };
 
 use crate::types::Frame;
@@ -21,6 +23,32 @@ use crate::types::Frame;
 // Limit the number of frames we hand over to the recognizer to reduce load.
 const RECOGNIZER_TARGET_FPS: u64 = 10;
 const RECOGNIZER_FRAME_INTERVAL: Duration = Duration::from_millis(1_000 / RECOGNIZER_TARGET_FPS);
+
+// Prefer pixel formats that are widely supported on macOS (the built-in cameras
+// often reject YUYV even though Nokhwa reports it).
+const PREFERRED_PIXEL_FORMATS: &[FrameFormat] = &[
+    FrameFormat::MJPEG,
+    FrameFormat::NV12,
+    FrameFormat::RAWRGB,
+    FrameFormat::RAWBGR,
+];
+
+fn requested_formats() -> [RequestedFormat<'static>; 4] {
+    [
+        RequestedFormat::with_formats(
+            RequestedFormatType::AbsoluteHighestFrameRate,
+            PREFERRED_PIXEL_FORMATS,
+        ),
+        RequestedFormat::with_formats(
+            RequestedFormatType::AbsoluteHighestResolution,
+            PREFERRED_PIXEL_FORMATS,
+        ),
+        // Fall back to any format Nokhwa can decode, but prefer higher FPS to
+        // avoid very low default rates (e.g. 15 FPS) that some drivers reject.
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
+    ]
+}
 
 #[derive(Clone, Debug)]
 pub struct CameraDevice {
@@ -68,10 +96,19 @@ fn format_camera_label(info: &CameraInfo) -> String {
 }
 
 fn build_camera(index: CameraIndex) -> Result<Camera> {
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
-    let mut camera = Camera::new(index, requested)?;
-    camera.open_stream()?;
-    Ok(camera)
+    let mut last_err = None;
+
+    for requested in requested_formats() {
+        match Camera::new(index.clone(), requested) {
+            Ok(mut camera) => match camera.open_stream() {
+                Ok(()) => return Ok(camera),
+                Err(err) => last_err = Some(err.into()),
+            },
+            Err(err) => last_err = Some(err.into()),
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| anyhow!("failed to open camera with any supported format")))
 }
 
 pub fn start_camera_stream(
