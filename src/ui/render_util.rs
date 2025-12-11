@@ -1,14 +1,16 @@
-use super::{RenderImage, CONNECTIONS, SKELETON_LINE_THICKNESS};
 use super::{Arc, ImageBuffer, ImageFrame, Rgba};
+use super::{CONNECTIONS, RenderImage, SKELETON_LINE_THICKNESS};
 use crate::types::Frame;
 
-pub(super) fn frame_to_image(frame: &Frame, overlay: Option<&[(f32, f32)]>) -> Option<Arc<RenderImage>> {
+pub(super) fn frame_to_image(
+    frame: &Frame,
+    overlay: Option<&[(f32, f32)]>,
+) -> Option<Arc<RenderImage>> {
     let mut rgba = frame.rgba.clone();
     if let Some(points) = overlay {
         draw_skeleton(&mut rgba, frame.width, frame.height, points);
     }
 
-    // GPUI expects BGRA; convert in place to avoid the async asset pipeline and flicker.
     for px in rgba.chunks_exact_mut(4) {
         px.swap(0, 2);
     }

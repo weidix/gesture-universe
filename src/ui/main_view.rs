@@ -1,15 +1,18 @@
-use super::{
-    h_flex, v_flex, ActiveTheme, AnyElement, AppView, Button, Context, IntoElement, FluentBuilder,
-    InteractiveElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
-    PanelResizeState, ParentElement, SharedString, Styled, StyledImage, Window,
-    DEFAULT_CAMERA_RATIO, RIGHT_PANEL_MAX_WIDTH, RIGHT_PANEL_MIN_WIDTH,
-};
 use super::render_util::frame_to_image;
+use super::{
+    ActiveTheme, AnyElement, AppView, Button, Context, DEFAULT_CAMERA_RATIO, FluentBuilder,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ObjectFit, PanelResizeState, ParentElement, RIGHT_PANEL_MAX_WIDTH, RIGHT_PANEL_MIN_WIDTH,
+    SharedString, Styled, StyledImage, Window, h_flex, v_flex,
+};
 use std::sync::Arc;
 
 impl AppView {
-    pub(super) fn render_main(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> AnyElement {
-        // Drain recognizer results first so overlay uses the latest confidence/landmarks.
+    pub(super) fn render_main(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let result_rx = self.result_rx.take();
         if let Some(rx) = result_rx.as_ref() {
             while let Ok(result) = rx.try_recv() {
@@ -18,7 +21,6 @@ impl AppView {
         }
         self.result_rx = result_rx;
 
-        // Drain frames without holding an immutable borrow on self while we update state.
         let frame_rx = self.frame_rx.take();
         if let Some(rx) = frame_rx.as_ref() {
             let mut frames = Vec::new();
@@ -72,8 +74,8 @@ impl AppView {
             .right_panel_width
             .clamp(RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
         self.right_panel_width = panel_width;
-        let camera_height = (panel_width / ratio)
-            .clamp(super::CAMERA_MIN_SIZE.1, super::CAMERA_MAX_SIZE.1);
+        let camera_height =
+            (panel_width / ratio).clamp(super::CAMERA_MIN_SIZE.1, super::CAMERA_MAX_SIZE.1);
 
         let frame_view: AnyElement = if let Some(image) = &self.latest_image {
             super::img(image.clone())
@@ -116,31 +118,23 @@ impl AppView {
                     .bg(gpui::rgba(0xef444433))
                     .border_1()
                     .border_color(gpui::rgba(0xef4444ff))
-                    .child(
-                        super::div()
-                            .text_base()
-                            .child("⚠️")
-                    )
+                    .child(super::div().text_base().child("⚠️"))
                     .child(
                         super::div()
                             .text_xs()
                             .text_color(gpui::rgb(0xfca5a5))
-                            .child(err.clone())
+                            .child(err.clone()),
                     )
                     .into_any_element(),
             );
         }
 
-        let mut info_row = h_flex()
-            .justify_between()
-            .items_center()
-            .gap_2()
-            .child(
-                super::div()
-                    .text_xs()
-                    .text_color(gpui::rgb(0xa0aab8))
-                    .child(format!("置信度: {confidence_text}")),
-            );
+        let mut info_row = h_flex().justify_between().items_center().gap_2().child(
+            super::div()
+                .text_xs()
+                .text_color(gpui::rgb(0xa0aab8))
+                .child(format!("置信度: {confidence_text}")),
+        );
 
         if self.available_cameras.len() > 1 {
             let picker_label = if self.camera_picker_open {
@@ -159,32 +153,25 @@ impl AppView {
             );
         }
 
-        let mut camera_card = super::div()
-            .relative()
-            .w(super::px(panel_width))
-            .child(
-                v_flex()
-                    .w_full()
-                    .rounded_lg()
-                    .overflow_hidden()
-                    .bg(gpui::rgb(0x0f1419))
-                    .child(camera_shell)
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .p_3()
-                            .child(info_row)
-                            .child(
-                                super::div()
-                                    .text_xs()
-                                    .text_color(gpui::rgb(0x8b95a5))
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .child(frame_status.clone()),
-                            ),
+        let mut camera_card = super::div().relative().w(super::px(panel_width)).child(
+            v_flex()
+                .w_full()
+                .rounded_lg()
+                .overflow_hidden()
+                .bg(gpui::rgb(0x0f1419))
+                .child(camera_shell)
+                .child(
+                    v_flex().gap_2().p_3().child(info_row).child(
+                        super::div()
+                            .text_xs()
+                            .text_color(gpui::rgb(0x8b95a5))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(frame_status.clone()),
                     ),
-            );
+                ),
+        );
 
         if let Some(picker) = picker_panel {
             camera_card = camera_card.child(
@@ -197,28 +184,30 @@ impl AppView {
                         super::div()
                             .relative()
                             .left(super::px(-(panel_width * 0.85).min(400.0) / 2.0))
-                            .child(picker)
-                    )
+                            .child(picker),
+                    ),
             );
         }
 
         let theme = cx.theme();
-        
+
         let (camera_icon, camera_text, camera_color) = if self.latest_frame.is_some() {
             ("●", "摄像头就绪", theme.success)
         } else {
             ("○", "等待摄像头", theme.muted_foreground)
         };
 
-        let (recognizer_icon, recognizer_text, recognizer_color) = if self.recognizer_handle.is_some() {
-            ("●", "识别运行中", theme.success)
-        } else {
-            ("○", "正在初始化", theme.muted_foreground)
-        };
+        let (recognizer_icon, recognizer_text, recognizer_color) =
+            if self.recognizer_handle.is_some() {
+                ("●", "识别运行中", theme.success)
+            } else {
+                ("○", "正在初始化", theme.muted_foreground)
+            };
 
         let placeholder_block = super::div()
             .w(super::px(panel_width))
-            .h(super::px(160.0))
+            .flex_1()
+            .min_h(super::px(40.0))
             .rounded_lg()
             .bg(gpui::rgb(0x0f1419))
             .flex()
@@ -247,12 +236,9 @@ impl AppView {
         let right_panel = super::div()
             .relative()
             .w(super::px(panel_width))
-            .child(
-                v_flex()
-                    .gap_3()
-                    .child(camera_card)
-                    .child(placeholder_block),
-            )
+            .h_full()
+            .overflow_hidden()
+            .child(v_flex().gap_3().child(camera_card).child(placeholder_block))
             .child(panel_handle);
 
         let titlebar = self.render_titlebar(
@@ -269,7 +255,9 @@ impl AppView {
         v_flex()
             .size_full()
             .bg(gpui::rgb(0x1a2332))
-            .when(self.panel_resize_state.is_some(), |this| this.cursor_ew_resize())
+            .when(self.panel_resize_state.is_some(), |this| {
+                this.cursor_ew_resize()
+            })
             .on_mouse_move(cx.listener(Self::update_panel_resize))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_panel_resize))
             .child(titlebar)
@@ -322,8 +310,7 @@ impl AppView {
 
             let delta_x = f32::from(event.position.x) - state.start_pointer_x;
             let target_width = state.start_width - delta_x;
-            let new_width = target_width
-                .clamp(RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
+            let new_width = target_width.clamp(RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
             if (new_width - self.right_panel_width).abs() > f32::EPSILON {
                 self.right_panel_width = new_width;
                 cx.notify();

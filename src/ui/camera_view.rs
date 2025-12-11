@@ -1,7 +1,7 @@
 use super::{
-    camera, div, h_flex, v_flex, ActiveTheme, AnyElement, AppView, Button, ButtonVariants, CameraDevice,
-    CameraState, Context, DownloadState, FluentBuilder, IntoElement, InteractiveElement, ParentElement, Screen,
-    SharedString, Styled, StyledExt,
+    ActiveTheme, AnyElement, AppView, CameraDevice, CameraState, Context, FluentBuilder,
+    InteractiveElement, IntoElement, ParentElement, Screen, Styled, StyledExt, camera, div, h_flex,
+    v_flex,
 };
 
 impl AppView {
@@ -13,158 +13,127 @@ impl AppView {
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let mut picker = v_flex()
+            .w(super::px(400.0))
             .gap_2()
             .p_4()
             .rounded_xl()
-            .bg(gpui::rgba(0x0f1419f5))
+            .bg(gpui::rgb(0x0a0a0a))
             .border_1()
-            .border_color(gpui::rgba(0x2d3748ff))
-            .shadow_lg();
+            .border_color(gpui::rgb(0x262626))
+            .shadow_xl();
 
         let title_row = h_flex()
-            .gap_2()
-            .items_center()
             .w_full()
+            .justify_between()
+            .items_center()
             .mb_2()
             .child(
                 div()
-                    .text_base()
-                    .text_color(gpui::rgb(0xa5b4fc))
-                    .child("◉")
+                    .text_lg()
+                    .font_bold()
+                    .text_color(gpui::rgb(0xffffff))
+                    .child("选择摄像头"),
             )
             .child(
                 div()
-                    .text_sm()
-                    .font_semibold()
-                    .text_color(gpui::rgb(0xe2e8f0))
-                    .child("选择摄像头")
+                    .text_xs()
+                    .text_color(gpui::rgb(0x525252))
+                    .child(format!("可用设备: {}", cameras.len())),
             );
 
         picker = picker.child(title_row);
 
         for (idx, device) in cameras.iter().enumerate() {
             let is_selected = selected_idx == idx;
-            
+
             picker = picker.child(
                 h_flex()
                     .w_full()
-                    .gap_3()
                     .items_center()
+                    .gap_3()
                     .p_3()
                     .rounded_lg()
                     .cursor_pointer()
                     .bg(if is_selected {
-                        gpui::rgba(0x2d374855)
+                        gpui::rgb(0x171717)
                     } else {
-                        gpui::rgba(0x1e293b00)
+                        gpui::rgb(0x0a0a0a)
                     })
                     .border_1()
                     .border_color(if is_selected {
-                        gpui::rgba(0x64748bff)
+                        gpui::rgb(0x525252)
                     } else {
-                        gpui::rgba(0x33415500)
+                        gpui::rgb(0x0a0a0a)
                     })
-                    .hover(|this| {
-                        this.bg(gpui::rgba(0x2d374844))
-                            .border_color(gpui::rgba(0x475569ff))
-                    })
-                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.select_camera(idx);
-                        cx.notify();
-                    }))
+                    .hover(|this| this.bg(gpui::rgb(0x262626)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.select_camera(idx);
+                            this.start_selected_camera();
+                            cx.notify();
+                        }),
+                    )
                     .child(
                         div()
                             .text_lg()
                             .flex_shrink_0()
                             .text_color(if is_selected {
-                                gpui::rgb(0xa5b4fc)
+                                gpui::rgb(0xffffff)
                             } else {
-                                gpui::rgb(0x94a3b8)
+                                gpui::rgb(0x525252)
                             })
-                            .child("●")
+                            .child("●"),
                     )
                     .child(
                         div()
                             .flex_1()
                             .text_sm()
+                            .font_medium()
                             .text_color(if is_selected {
-                                gpui::rgb(0xe2e8f0)
+                                gpui::rgb(0xffffff)
                             } else {
-                                gpui::rgb(0xcbd5e1)
+                                gpui::rgb(0xa3a3a3)
                             })
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .child(device.label.clone())
+                            .child(device.label.clone()),
                     )
                     .when(is_selected, |this| {
                         this.child(
                             div()
                                 .text_sm()
                                 .flex_shrink_0()
-                                .text_color(gpui::rgb(0xa5b4fc))
-                                .child("✓")
+                                .text_color(gpui::rgb(0xffffff))
+                                .child("✓"),
                         )
-                    })
+                    }),
             );
         }
 
         if let Some(err) = error_msg {
             picker = picker.child(
-                h_flex()
-                    .gap_2()
-                    .items_start()
+                div()
                     .mt_2()
-                    .p_3()
-                    .rounded_lg()
-                    .bg(gpui::rgba(0x7f1d1d33))
-                    .border_1()
-                    .border_color(gpui::rgba(0xef4444aa))
-                    .child(
-                        div()
-                            .text_sm()
-                            .flex_shrink_0()
-                            .text_color(gpui::rgb(0xfca5a5))
-                            .child("!")
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .text_color(gpui::rgb(0xfca5a5))
-                            .overflow_hidden()
-                            .child(err.to_string())
-                    )
+                    .text_xs()
+                    .text_color(gpui::rgb(0xef4444))
+                    .child(err.to_string()),
             );
         }
-
-        picker = picker.child(
-            Button::new(SharedString::from("camera-confirm"))
-                .primary()
-                .label("✓ 使用所选摄像头")
-                .w_full()
-                .mt_2()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.start_selected_camera();
-                    cx.notify();
-                }))
-        );
 
         picker.into_any_element()
     }
 
-    pub(super) fn render_camera_picker_main(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) -> AnyElement {
+    pub(super) fn render_camera_picker_main(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
         let mut picker = v_flex()
             .gap_2()
             .p_4()
             .rounded_xl()
-            .bg(gpui::rgba(0x0f1419f5))
+            .bg(gpui::rgb(0x0a0a0a))
             .border_1()
-            .border_color(gpui::rgba(0x2d3748ff))
-            .shadow_lg();
+            .border_color(gpui::rgb(0x262626))
+            .shadow_xl();
 
         let title_row = h_flex()
             .justify_between()
@@ -175,35 +144,46 @@ impl AppView {
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .child(div().text_base().text_color(gpui::rgb(0xffffff)).child("◉"))
                     .child(
                         div()
-                            .text_base()
-                            .text_color(gpui::rgb(0xa5b4fc))
-                            .child("◉")
+                            .text_sm()
+                            .font_semibold()
+                            .text_color(gpui::rgb(0xffffff))
+                            .child("选择摄像头"),
+                    ),
+            )
+            .child(
+                div()
+                    .cursor_pointer()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w_6()
+                    .h_6()
+                    .rounded_md()
+                    .hover(|this| this.bg(gpui::rgba(0xffffff1a)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.camera_picker_open = false;
+                            cx.notify();
+                        }),
                     )
                     .child(
                         div()
                             .text_sm()
                             .font_semibold()
-                            .text_color(gpui::rgb(0xe2e8f0))
-                            .child("选择摄像头")
-                    )
-            )
-            .child(
-                Button::new(SharedString::from("camera-picker-close"))
-                    .label("×")
-                    .ghost()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.camera_picker_open = false;
-                        cx.notify();
-                    }))
+                            .text_color(gpui::rgb(0x94a3b8))
+                            .child("✕"),
+                    ),
             );
 
         picker = picker.child(title_row);
 
         for (idx, device) in self.available_cameras.iter().enumerate() {
             let is_selected = self.selected_camera_idx == Some(idx);
-            
+
             picker = picker.child(
                 h_flex()
                     .w_full()
@@ -213,58 +193,58 @@ impl AppView {
                     .rounded_lg()
                     .cursor_pointer()
                     .bg(if is_selected {
-                        gpui::rgba(0x2d374855)
+                        gpui::rgb(0x171717)
                     } else {
-                        gpui::rgba(0x1e293b00)
+                        gpui::rgb(0x0a0a0a)
                     })
                     .border_1()
                     .border_color(if is_selected {
-                        gpui::rgba(0x64748bff)
+                        gpui::rgb(0x525252)
                     } else {
-                        gpui::rgba(0x33415500)
+                        gpui::rgb(0x0a0a0a)
                     })
-                    .hover(|this| {
-                        this.bg(gpui::rgba(0x2d374844))
-                            .border_color(gpui::rgba(0x475569ff))
-                    })
-                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.switch_camera(idx);
-                        cx.notify();
-                    }))
+                    .hover(|this| this.bg(gpui::rgb(0x262626)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.switch_camera(idx);
+                            cx.notify();
+                        }),
+                    )
                     .child(
                         div()
                             .text_lg()
                             .flex_shrink_0()
                             .text_color(if is_selected {
-                                gpui::rgb(0xa5b4fc)
+                                gpui::rgb(0xffffff)
                             } else {
-                                gpui::rgb(0x94a3b8)
+                                gpui::rgb(0x525252)
                             })
-                            .child("●")
+                            .child("●"),
                     )
                     .child(
                         div()
                             .flex_1()
                             .text_sm()
                             .text_color(if is_selected {
-                                gpui::rgb(0xe2e8f0)
+                                gpui::rgb(0xffffff)
                             } else {
-                                gpui::rgb(0xcbd5e1)
+                                gpui::rgb(0xa3a3a3)
                             })
                             .overflow_hidden()
                             .text_ellipsis()
                             .whitespace_nowrap()
-                            .child(device.label.clone())
+                            .child(device.label.clone()),
                     )
                     .when(is_selected, |this| {
                         this.child(
                             div()
                                 .text_sm()
                                 .flex_shrink_0()
-                                .text_color(gpui::rgb(0xa5b4fc))
-                                .child("✓")
+                                .text_color(gpui::rgb(0xffffff))
+                                .child("✓"),
                         )
-                    })
+                    }),
             );
         }
 
@@ -284,7 +264,7 @@ impl AppView {
                             .text_sm()
                             .flex_shrink_0()
                             .text_color(gpui::rgb(0xfca5a5))
-                            .child("!")
+                            .child("!"),
                     )
                     .child(
                         div()
@@ -292,8 +272,8 @@ impl AppView {
                             .text_xs()
                             .text_color(gpui::rgb(0xfca5a5))
                             .overflow_hidden()
-                            .child(err.clone())
-                    )
+                            .child(err.clone()),
+                    ),
             );
         }
 
@@ -377,38 +357,37 @@ impl AppView {
                 }
 
                 let error_msg = start_error.as_deref();
-                let picker = self.render_camera_picker_startup(
-                    options,
-                    *selected,
-                    error_msg,
-                    cx,
-                );
+                let picker = self.render_camera_picker_startup(options, *selected, error_msg, cx);
 
                 div()
                     .size_full()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(gpui::rgba(0x1a233288))
-                    .child(
-                        div()
-                            .w(super::px(450.0))
-                            .child(picker)
-                    )
+                    .bg(gpui::rgb(0x1a2332))
+                    .child(div().w(super::px(450.0)).child(picker))
                     .into_any_element()
             }
-            CameraState::Ready => v_flex()
-                .gap_2()
-                .p_4()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.group_box)
+            CameraState::Ready => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(gpui::rgb(0x1a2332))
                 .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.foreground)
-                        .child("⟳ 正在启动摄像头..."),
+                    v_flex()
+                        .gap_2()
+                        .p_4()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.group_box)
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.foreground)
+                                .child("⟳ 正在启动摄像头..."),
+                        ),
                 )
                 .into_any_element(),
         }
@@ -499,7 +478,8 @@ impl AppView {
                 self.selected_camera_idx = Some(selected_idx);
                 self.camera_error = None;
                 self.camera_picker_open = false;
-                self.screen = Screen::Download(DownloadState::new());
+                self.start_recognizer_if_needed();
+                self.screen = Screen::Main;
             }
             Err(err) => {
                 if let Screen::Camera(CameraState::Selection { start_error, .. }) = &mut self.screen

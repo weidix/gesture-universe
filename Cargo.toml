@@ -3,6 +3,17 @@ name = "gesture-universe"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.bundle]
+name = "Gesture Universe"
+identifier = "com.gesture-universe.app"
+version = "0.1.0"
+copyright = "Copyright © 2024 Gesture Universe"
+category = "public.app-category.utilities"
+short_description = "Hand gesture recognition application"
+long_description = """
+A hand gesture recognition application built with Rust and GPUI.
+"""
+
 [target.'cfg(windows)'.build-dependencies]
 
 [[bin]]

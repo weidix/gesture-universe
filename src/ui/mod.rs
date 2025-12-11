@@ -1,20 +1,19 @@
-use std::{mem, sync::Arc, thread};
+use std::{
+    mem,
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use gpui::{
-    AnyElement, App, AppContext, Context, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
-    SharedString, Styled, StyledImage, Window, WindowOptions, WindowDecorations, TitlebarOptions,
-    div, img, px, WindowControlArea, Hsla,
-};
 use gpui::prelude::FluentBuilder;
-use gpui_component::{
-    ActiveTheme, Root, StyledExt,
-    button::{Button, ButtonVariants},
-    h_flex,
-    tag::Tag,
-    v_flex,
+use gpui::{
+    AnyElement, App, AppContext, Context, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
+    SharedString, Styled, StyledImage, TitlebarOptions, Window, WindowControlArea,
+    WindowDecorations, WindowOptions, div, img, px,
 };
+use gpui_component::{ActiveTheme, Root, StyledExt, button::Button, h_flex, v_flex};
 use image::{Frame as ImageFrame, ImageBuffer, Rgba};
 
 use crate::{
@@ -82,9 +81,13 @@ pub fn launch_ui(
             traffic_light_position: None,
         }),
         window_decorations: Some(WindowDecorations::Client),
+        window_min_size: Some(gpui::Size {
+            width: px(800.0),
+            height: px(600.0),
+        }),
         ..Default::default()
     };
-    
+
     app.open_window(window_options, move |window, app| {
         let view = app.new(|_| {
             AppView::new(
@@ -151,6 +154,7 @@ struct DownloadState {
     message: String,
     error: Option<String>,
     finished: bool,
+    start_time: Instant,
 }
 
 impl DownloadState {
@@ -161,6 +165,7 @@ impl DownloadState {
             message: "Preparing model download...".to_string(),
             error: None,
             finished: false,
+            start_time: Instant::now(),
         }
     }
 }
@@ -186,8 +191,9 @@ impl AppView {
         recognizer_backend: RecognizerBackend,
     ) -> Self {
         let (download_tx, download_rx) = unbounded();
-        let download_handle = download::spawn_model_download(recognizer_backend.clone(), download_tx);
-        let (initial_camera_state, available_cameras) = Self::initial_camera_state();
+        let download_handle =
+            download::spawn_model_download(recognizer_backend.clone(), download_tx);
+        let (_initial_camera_state, available_cameras) = Self::initial_camera_state();
         let selected_camera_idx = if available_cameras.is_empty() {
             None
         } else {
@@ -195,7 +201,7 @@ impl AppView {
         };
 
         Self {
-            screen: Screen::Camera(initial_camera_state),
+            screen: Screen::Download(DownloadState::new()),
             frame_rx: Some(frame_rx),
             result_rx: Some(result_rx),
             frame_to_rec_rx: Some(frame_to_rec_rx),
@@ -255,7 +261,8 @@ impl Render for AppView {
                 let view = self.render_camera_view(&mut state, cx);
                 match state {
                     CameraState::Ready => {
-                        screen = Screen::Download(DownloadState::new());
+                        self.start_recognizer_if_needed();
+                        screen = Screen::Main;
                     }
                     _ => {
                         screen = Screen::Camera(state);
@@ -265,11 +272,12 @@ impl Render for AppView {
             }
             Screen::Download(mut state) => {
                 self.poll_download_events(&mut state);
-                let should_switch = state.finished && state.error.is_none();
+                let min_time_passed = state.start_time.elapsed() >= Duration::from_millis(1200);
+                let should_switch = state.finished && state.error.is_none() && min_time_passed;
                 let view = self.render_download_view(&state, cx);
                 if should_switch {
-                    self.start_recognizer_if_needed();
-                    screen = Screen::Main;
+                    let (initial_camera_state, _) = Self::initial_camera_state();
+                    screen = Screen::Camera(initial_camera_state);
                 } else {
                     screen = Screen::Download(state);
                 }

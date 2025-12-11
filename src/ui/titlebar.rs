@@ -1,6 +1,6 @@
 use super::{
-    div, h_flex, AppView, AnyElement, Context, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Styled, Window, WindowControlArea, px,
+    AnyElement, AppView, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Styled,
+    Window, WindowControlArea, div, h_flex, px,
 };
 
 #[cfg(target_os = "windows")]
@@ -20,13 +20,13 @@ impl AppView {
     ) -> AnyElement {
         let titlebar_height = px(32.0);
         let titlebar_bg = gpui::rgb(0x1a2332);
-        
+
         #[cfg(target_os = "windows")]
         let controls = self.render_windows_controls(window, cx);
-        
+
         #[cfg(target_os = "macos")]
         let controls = self.render_macos_controls(window, cx);
-        
+
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let controls = self.render_linux_controls(window, cx);
 
@@ -70,9 +70,13 @@ impl AppView {
     }
 
     #[cfg(target_os = "windows")]
-    fn render_windows_controls(&self, window: &mut Window, _cx: &mut Context<'_, Self>) -> AnyElement {
+    fn render_windows_controls(
+        &self,
+        window: &mut Window,
+        _cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         use gpui::Rgba;
-        
+
         let button_height = px(32.0);
         let close_button_hover_color = Rgba {
             r: 232.0 / 255.0,
@@ -80,11 +84,11 @@ impl AppView {
             b: 32.0 / 255.0,
             a: 1.0,
         };
-        
+
         let button_hover_color = gpui::rgb(0x404040);
-        
+
         let font_family: SharedString = "Segoe Fluent Icons".into();
-        
+
         div()
             .id("windows-window-controls")
             .font_family(font_family)
@@ -147,18 +151,26 @@ impl AppView {
     }
 
     #[cfg(target_os = "macos")]
-    fn render_macos_controls(&self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> AnyElement {
+    fn render_macos_controls(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         div().into_any_element()
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    fn render_linux_controls(&self, _window: &mut Window, cx: &mut Context<'_, Self>) -> AnyElement {
+    fn render_linux_controls(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let button_size = px(28.0);
         let icon_size = px(16.0);
         let icon_color = gpui::rgb(0xc9d1d9);
         let hover_bg = gpui::rgb(0x1f2428);
         let close_hover_bg = gpui::rgb(0xe81123);
-        
+
         h_flex()
             .gap_1()
             .px_2()

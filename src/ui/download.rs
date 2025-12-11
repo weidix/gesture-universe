@@ -1,8 +1,9 @@
 use super::{
-    default_model_path, ensure_model_available_with_callback, h_flex, v_flex, ActiveTheme, AppView,
-    AnyElement, Context, DownloadEvent, DownloadMessage, DownloadState, IntoElement, ParentElement,
-    RecognizerBackend, Sender, Styled, StyledExt, Tag, div, thread,
+    AnyElement, AppView, Context, DownloadEvent, DownloadMessage, DownloadState, IntoElement,
+    ParentElement, RecognizerBackend, Sender, Styled, StyledExt, default_model_path, div,
+    ensure_model_available_with_callback, h_flex, thread, v_flex,
 };
+use gpui::{SharedString, px};
 
 impl AppView {
     pub(super) fn poll_download_events(&mut self, state: &mut DownloadState) {
@@ -36,84 +37,117 @@ impl AppView {
     pub(super) fn render_download_view(
         &self,
         state: &DownloadState,
-        cx: &mut Context<'_, Self>,
+        _cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let theme = cx.theme();
         let bar = progress_bar_string(state.downloaded, state.total);
         let detail = match (state.total, state.finished) {
-            (_, true) => "Done".to_string(),
+            (_, true) => "下载完成".to_string(),
             (Some(total), false) if total > 0 => {
                 let percent = (state.downloaded as f64 / total as f64 * 100.0).clamp(0.0, 100.0);
                 format!("{percent:.1}%")
             }
-            _ => format!("Downloaded {} KB", state.downloaded / 1024),
+            _ => format!("{:.1} MB", state.downloaded as f64 / 1024.0 / 1024.0),
         };
 
         let (status_icon, status_text, status_color) = if state.finished && state.error.is_none() {
-            ("✓", "模型就绪", theme.success)
+            ("✓", "模型就绪", gpui::rgb(0x4ade80))
         } else if state.error.is_some() {
-            ("✗", "模型下载失败", theme.accent)
+            ("✕", "下载失败", gpui::rgb(0xf87171))
         } else {
-            ("⟳", "模型下载中", theme.foreground)
+            ("⟳", "正在下载模型...", gpui::rgb(0xe2e8f0))
         };
 
         let mut container = v_flex()
-            .gap_3()
+            .w(px(420.0))
+            .gap_4()
             .p_6()
-            .rounded_lg()
+            .rounded_xl()
+            .bg(gpui::rgb(0x0a0a0a))
             .border_1()
-            .border_color(theme.border)
-            .bg(theme.group_box)
+            .border_color(gpui::rgb(0x262626))
+            .shadow_xl()
             .child(
                 h_flex()
-                    .gap_2()
+                    .justify_between()
                     .items_center()
                     .child(
-                        div()
-                            .text_color(status_color)
-                            .font_semibold()
-                            .child(format!("{} {}", status_icon, status_text)),
+                        h_flex()
+                            .gap_3()
+                            .items_center()
+                            .child(div().text_xl().text_color(status_color).child(status_icon))
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_semibold()
+                                    .text_color(gpui::rgb(0xffffff))
+                                    .child(status_text),
+                            ),
                     )
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("准备手势识别模型"),
+                            .text_color(gpui::rgb(0x525252))
+                            .child(detail),
                     ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.muted)
-                    .font_family(theme.mono_font_family.clone())
-                    .text_color(theme.foreground)
-                    .child(bar),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(detail),
-            )
-            .child(
-                div()
-                    .text_color(theme.foreground)
-                    .child(state.message.clone()),
             );
 
-        if let Some(err) = &state.error {
-            container = container.child(Tag::danger().rounded_full().child(format!("错误: {err}")));
+        if state.error.is_none() {
+            container = container
+                .child(
+                    div()
+                        .w_full()
+                        .p_3()
+                        .rounded_lg()
+                        .bg(gpui::rgb(0x171717))
+                        .border_1()
+                        .border_color(gpui::rgb(0x262626))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_family(SharedString::from("Menlo"))
+                                .text_color(gpui::rgb(0x22d3ee))
+                                .whitespace_nowrap()
+                                .child(bar),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(gpui::rgb(0xa3a3a3))
+                        .child(state.message.clone()),
+                );
+        } else if let Some(err) = &state.error {
+            container = container.child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .p_3()
+                    .rounded_lg()
+                    .bg(gpui::rgba(0x7f1d1d33))
+                    .border_1()
+                    .border_color(gpui::rgba(0xef444466))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_semibold()
+                            .text_color(gpui::rgb(0xfca5a5))
+                            .child("错误详情"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xfecaca))
+                            .whitespace_normal()
+                            .child(err.clone()),
+                    ),
+            );
         }
 
         v_flex()
             .size_full()
             .items_center()
             .justify_center()
-            .bg(theme.background)
+            .bg(gpui::rgb(0x1a2332))
             .child(container)
             .into_any_element()
     }
