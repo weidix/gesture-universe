@@ -38,7 +38,7 @@ thiserror = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 log = "0.4"
 env_logger = "0.11"
-nokhwa = { version = "0.10", default-features = false, features = ["input-native", "output-threaded"], optional = true }
+nokhwa = { version = "0.10", default-features = false, features = ["input-native", "output-threaded", "decoding"], optional = true }
 tract-onnx = { version = "0.21" }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
 indicatif = "0.17"
