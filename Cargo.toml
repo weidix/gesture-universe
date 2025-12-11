@@ -21,7 +21,11 @@ name = "gesture-universe"
 path = "src/main.rs"
 
 [profile.release]
-opt-level = 3
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
 
 [features]
 default = ["camera-nokhwa", "handpose-tract"]
