@@ -51,7 +51,7 @@ fn main() -> Result<()> {
     let input_image = args
         .next()
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("demo/image.png"));
+        .unwrap_or_else(|| PathBuf::from("demo/ok.png"));
     let output_image = args
         .next()
         .map(PathBuf::from)
