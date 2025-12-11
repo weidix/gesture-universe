@@ -30,6 +30,13 @@ impl AppView {
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let controls = self.render_linux_controls(window, cx);
 
+        // macOS 需要为交通灯按钮留出空间
+        #[cfg(target_os = "macos")]
+        let left_padding = px(80.0);
+
+        #[cfg(not(target_os = "macos"))]
+        let left_padding = px(12.0);
+
         h_flex()
             .window_control_area(WindowControlArea::Drag)
             .h(titlebar_height)
@@ -40,7 +47,7 @@ impl AppView {
             .child(
                 h_flex()
                     .gap_3()
-                    .pl(px(80.0))
+                    .pl(left_padding)
                     .pr_3()
                     .h_full()
                     .items_center()
@@ -86,6 +93,7 @@ impl AppView {
         };
 
         let button_hover_color = gpui::rgb(0x404040);
+        let icon_color = gpui::rgb(0xffffff); // 白色图标
 
         let font_family: SharedString = "Segoe Fluent Icons".into();
 
@@ -109,6 +117,7 @@ impl AppView {
                     .w(px(46.0))
                     .h_full()
                     .text_size(px(10.0))
+                    .text_color(icon_color)
                     .hover(|s| s.bg(button_hover_color))
                     .window_control_area(WindowControlArea::Min)
                     .child("\u{e921}"), // Minimize icon
@@ -124,6 +133,7 @@ impl AppView {
                     .w(px(46.0))
                     .h_full()
                     .text_size(px(10.0))
+                    .text_color(icon_color)
                     .hover(|s| s.bg(button_hover_color))
                     .window_control_area(WindowControlArea::Max)
                     .child(if window.is_maximized() {
@@ -143,6 +153,7 @@ impl AppView {
                     .w(px(46.0))
                     .h_full()
                     .text_size(px(10.0))
+                    .text_color(icon_color)
                     .hover(|s| s.bg(close_button_hover_color))
                     .window_control_area(WindowControlArea::Close)
                     .child("\u{e8bb}"), // Close icon

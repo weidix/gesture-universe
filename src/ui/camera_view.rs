@@ -1,7 +1,7 @@
 use super::{
     ActiveTheme, AnyElement, AppView, CameraDevice, CameraState, Context, FluentBuilder,
-    InteractiveElement, IntoElement, ParentElement, Screen, Styled, StyledExt, camera, div, h_flex,
-    v_flex,
+    InteractiveElement, IntoElement, ParentElement, Screen, Styled, StyledExt, Window, camera, div,
+    h_flex, v_flex,
 };
 
 impl AppView {
@@ -284,7 +284,7 @@ impl AppView {
         match camera::available_cameras() {
             Ok(cameras) if cameras.is_empty() => (
                 CameraState::Unavailable {
-                    message: "没有可用摄像头".to_string(),
+                    message: String::new(),
                 },
                 Vec::new(),
             ),
@@ -300,7 +300,7 @@ impl AppView {
                 log::error!("failed to enumerate cameras: {err:?}");
                 (
                     CameraState::Unavailable {
-                        message: format!("没有可用摄像头: {err:#}"),
+                        message: format!("{err:#}"),
                     },
                     Vec::new(),
                 )
@@ -311,31 +311,133 @@ impl AppView {
     pub(super) fn render_camera_view(
         &mut self,
         state: &mut CameraState,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let theme = cx.theme();
-        match state {
-            CameraState::Unavailable { message } => v_flex()
-                .gap_2()
-                .p_4()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.group_box)
+        let (cam_color, cam_icon, cam_text) = match state {
+            CameraState::Unavailable { .. } => (gpui::hsla(0.0, 0.8, 0.5, 1.0), "!", "无设备"),
+            CameraState::Selection { .. } => (gpui::hsla(0.1, 0.8, 0.5, 1.0), "●", "选择中"),
+            CameraState::Ready => (gpui::hsla(0.3, 0.8, 0.5, 1.0), "●", "启动中"),
+        };
+
+        let titlebar = self.render_titlebar(
+            gpui::hsla(0.0, 0.0, 0.5, 1.0),
+            "○",
+            "未启动",
+            cam_color,
+            cam_icon,
+            cam_text,
+            window,
+            cx,
+        );
+
+        let content = match state {
+            CameraState::Unavailable { message } => div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(gpui::rgb(0x1a2332))
                 .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.accent)
-                        .font_semibold()
-                        .child("⚠ 没有可用摄像头"),
+                    v_flex()
+                        .w(super::px(400.0))
+                        .gap_2()
+                        .p_4()
+                        .rounded_xl()
+                        .bg(gpui::rgb(0x0a0a0a))
+                        .border_1()
+                        .border_color(gpui::rgb(0x262626))
+                        .shadow_xl()
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .justify_between()
+                                .items_center()
+                                .mb_2()
+                                .child(
+                                    div()
+                                        .text_lg()
+                                        .font_bold()
+                                        .text_color(gpui::rgb(0xffffff))
+                                        .child("没有可用摄像头"),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(gpui::rgb(0x525252))
+                                        .child("请检查连接"),
+                                ),
+                        )
+                        .when(!message.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .w_full()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .bg(gpui::rgba(0x00000033))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(gpui::rgb(0xef4444))
+                                            .child(message.clone()),
+                                    ),
+                            )
+                        })
+                        .child(
+                            div()
+                                .id("refresh-cameras-button")
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .gap_2()
+                                .p_2()
+                                .rounded_lg()
+                                .bg(gpui::rgb(0x0a0a0a))
+                                .border_1()
+                                .border_color(gpui::rgb(0x262626))
+                                .cursor_pointer()
+                                .hover(|this| this.bg(gpui::rgb(0x262626)))
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.is_refreshing_cameras = true;
+                                        cx.notify();
+                                    }),
+                                )
+                                .on_mouse_up(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.refresh_cameras();
+                                        this.is_refreshing_cameras = false;
+                                        cx.notify();
+                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .text_base()
+                                        .flex_shrink_0()
+                                        .text_color(gpui::rgb(0x525252))
+                                        .child("⟳"),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_medium()
+                                        .text_color(if self.is_refreshing_cameras {
+                                            gpui::rgb(0xffffff)
+                                        } else {
+                                            gpui::rgb(0xa3a3a3)
+                                        })
+                                        .child(if self.is_refreshing_cameras {
+                                            "刷新中..."
+                                        } else {
+                                            "刷新摄像头列表"
+                                        }),
+                                ),
+                        ),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child("请检查摄像头连接或权限设置"),
-                )
-                .child(div().text_color(theme.foreground).child(message.clone()))
                 .into_any_element(),
             CameraState::Selection {
                 options,
@@ -360,7 +462,8 @@ impl AppView {
                 let picker = self.render_camera_picker_startup(options, *selected, error_msg, cx);
 
                 div()
-                    .size_full()
+                    .flex_1()
+                    .w_full()
                     .flex()
                     .items_center()
                     .justify_center()
@@ -368,29 +471,39 @@ impl AppView {
                     .child(div().w(super::px(450.0)).child(picker))
                     .into_any_element()
             }
-            CameraState::Ready => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(gpui::rgb(0x1a2332))
-                .child(
-                    v_flex()
-                        .gap_2()
-                        .p_4()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme.border)
-                        .bg(theme.group_box)
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(theme.foreground)
-                                .child("⟳ 正在启动摄像头..."),
-                        ),
-                )
-                .into_any_element(),
-        }
+            CameraState::Ready => {
+                let theme = cx.theme();
+                div()
+                    .flex_1()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui::rgb(0x1a2332))
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .p_4()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.group_box)
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.foreground)
+                                    .child("⟳ 正在启动摄像头..."),
+                            ),
+                    )
+                    .into_any_element()
+            }
+        };
+
+        v_flex()
+            .size_full()
+            .child(titlebar)
+            .child(content)
+            .into_any_element()
     }
 
     pub(super) fn switch_camera(&mut self, idx: usize) {
@@ -488,5 +601,16 @@ impl AppView {
                 }
             }
         }
+    }
+
+    pub(super) fn refresh_cameras(&mut self) {
+        let (new_state, new_cameras) = Self::initial_camera_state();
+        self.screen = Screen::Camera(new_state);
+        self.available_cameras = new_cameras;
+        self.selected_camera_idx = if self.available_cameras.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
     }
 }

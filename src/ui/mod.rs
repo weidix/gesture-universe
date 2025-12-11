@@ -128,6 +128,7 @@ struct AppView {
     camera_picker_open: bool,
     right_panel_width: f32,
     panel_resize_state: Option<PanelResizeState>,
+    is_refreshing_cameras: bool,
 }
 
 enum Screen {
@@ -222,6 +223,7 @@ impl AppView {
             camera_picker_open: false,
             right_panel_width: RIGHT_PANEL_INITIAL_WIDTH,
             panel_resize_state: None,
+            is_refreshing_cameras: false,
         }
     }
 
@@ -258,7 +260,7 @@ impl Render for AppView {
         let mut screen = mem::replace(&mut self.screen, Screen::Main);
         let view = match screen {
             Screen::Camera(mut state) => {
-                let view = self.render_camera_view(&mut state, cx);
+                let view = self.render_camera_view(&mut state, window, cx);
                 match state {
                     CameraState::Ready => {
                         self.start_recognizer_if_needed();
