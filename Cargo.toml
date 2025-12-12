@@ -28,10 +28,8 @@ panic = "abort"
 strip = "symbols"
 
 [features]
-default = ["camera-nokhwa", "backend-ort"]
+default = ["camera-nokhwa"]
 camera-nokhwa = ["nokhwa"]
-backend-tract = ["tract-onnx"]
-backend-ort = ["ort"]
 
 [dependencies]
 gpui = "0.2"
@@ -51,7 +49,6 @@ nokhwa = { version = "0.10", default-features = false, features = [
     "output-threaded",
     "decoding",
 ], optional = true }
-tract-onnx = { version = "0.21", optional = true }
 reqwest = { version = "0.11", default-features = false, features = [
     "blocking",
     "rustls-tls",
@@ -61,4 +58,4 @@ ndarray = { version = "0.16", default-features = false, features = ["std"] }
 ort = { version = "=2.0.0-rc.10", default-features = false, features = [
     "ndarray",
     "std",
-], optional = true }
+] }

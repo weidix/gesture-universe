@@ -1,14 +1,5 @@
-#[cfg(all(feature = "backend-tract", feature = "backend-ort"))]
-compile_error!("Enable exactly one backend feature: choose backend-tract or backend-ort.");
-
-#[cfg(not(any(feature = "backend-tract", feature = "backend-ort")))]
-compile_error!("Enable at least one backend feature: backend-tract or backend-ort.");
-
 mod common;
-#[cfg(feature = "backend-ort")]
 mod ort;
-#[cfg(feature = "backend-tract")]
-mod tract;
 
 use std::{path::PathBuf, thread};
 
@@ -55,46 +46,23 @@ fn recv_latest_frame(frame_rx: &Receiver<Frame>) -> Option<Frame> {
 }
 
 #[derive(Clone, Debug)]
-pub enum RecognizerBackend {
-    #[cfg(feature = "backend-tract")]
-    Tract { model_path: PathBuf },
-    #[cfg(feature = "backend-ort")]
-    Ort { model_path: PathBuf },
+pub struct RecognizerBackend {
+    model_path: PathBuf,
 }
 
 impl RecognizerBackend {
     pub fn model_path(&self) -> PathBuf {
-        match self {
-            #[cfg(feature = "backend-tract")]
-            RecognizerBackend::Tract { model_path } => model_path.clone(),
-            #[cfg(feature = "backend-ort")]
-            RecognizerBackend::Ort { model_path } => model_path.clone(),
-        }
+        self.model_path.clone()
     }
 
     pub fn label(&self) -> &'static str {
-        match self {
-            #[cfg(feature = "backend-tract")]
-            RecognizerBackend::Tract { .. } => "tract",
-            #[cfg(feature = "backend-ort")]
-            RecognizerBackend::Ort { .. } => "ort",
-        }
+        "ort"
     }
 }
 
-#[cfg(feature = "backend-tract")]
 impl Default for RecognizerBackend {
     fn default() -> Self {
-        RecognizerBackend::Tract {
-            model_path: default_model_path(),
-        }
-    }
-}
-
-#[cfg(all(not(feature = "backend-tract"), feature = "backend-ort"))]
-impl Default for RecognizerBackend {
-    fn default() -> Self {
-        RecognizerBackend::Ort {
+        RecognizerBackend {
             model_path: default_model_path(),
         }
     }
@@ -107,14 +75,7 @@ pub fn start_recognizer(
 ) -> thread::JoinHandle<()> {
     log::info!("starting handpose backend: {}", backend.label());
 
-    match backend {
-        #[cfg(feature = "backend-tract")]
-        RecognizerBackend::Tract { model_path } => {
-            tract::start_worker(model_path, frame_rx, result_tx)
-        }
-        #[cfg(feature = "backend-ort")]
-        RecognizerBackend::Ort { model_path } => ort::start_worker(model_path, frame_rx, result_tx),
-    }
+    ort::start_worker(backend.model_path(), frame_rx, result_tx)
 }
 
 pub(crate) fn build_gesture_result(

@@ -1,6 +1,2 @@
 [env]
-# Force ort to use the locally built static libraries
-ORT_STRATEGY = "system"
-ORT_INCLUDE_DIR = { value = "target/onnxruntime/onnxruntime-1.22.0/include", relative = true }
-# Unified library location (platform-independent)
-ORT_LIB_LOCATION = { value = "target/onnxruntime/lib", relative = true }
+ORT_LIB_LOCATION = { value = "target/onnxruntime/build/MinSizeRel", relative = true }

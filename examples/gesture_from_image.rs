@@ -1,8 +1,3 @@
-#[cfg(all(feature = "backend-tract", feature = "backend-ort"))]
-compile_error!("Enable exactly one backend feature: backend-tract or backend-ort.");
-#[cfg(not(any(feature = "backend-tract", feature = "backend-ort")))]
-compile_error!("Enable at least one backend feature: backend-tract or backend-ort.");
-
 #[path = "../src/gesture.rs"]
 mod gesture;
 #[path = "../src/model_download.rs"]
@@ -18,23 +13,13 @@ use gesture::GestureClassifier;
 use std::path::PathBuf;
 use types::Frame;
 
-#[cfg(feature = "backend-ort")]
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor as OrtTensor,
 };
-#[cfg(feature = "backend-tract")]
-use tract_onnx::prelude::*;
 
-#[cfg(feature = "backend-ort")]
 type Model = Session;
-#[cfg(feature = "backend-tract")]
-type Model = TypedRunnableModel<TypedModel>;
-
-#[cfg(feature = "backend-ort")]
 type InputTensor = OrtTensor<f32>;
-#[cfg(feature = "backend-tract")]
-type InputTensor = tract_onnx::prelude::Tensor;
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -118,32 +103,11 @@ impl HandposeModel {
     fn new(model_path: &PathBuf) -> Result<Self> {
         model_download::ensure_model_available(model_path)?;
 
-        #[cfg(feature = "backend-tract")]
-        let model = {
-            let mut model = tract_onnx::onnx().model_for_path(model_path)?;
-            model.set_input_fact(
-                0,
-                InferenceFact::dt_shape(
-                    f32::datum_type(),
-                    tvec![
-                        1.to_dim(),
-                        (recognizer_common::INPUT_SIZE as usize).to_dim(),
-                        (recognizer_common::INPUT_SIZE as usize).to_dim(),
-                        3.to_dim()
-                    ],
-                ),
-            )?;
-            model.into_optimized()?.into_runnable()?
-        };
-
-        #[cfg(feature = "backend-ort")]
-        let model = {
-            Session::builder()?
-                .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_intra_threads(2)?
-                .commit_from_file(model_path)
-                .with_context(|| format!("failed to load model from {}", model_path.display()))?
-        };
+        let model = Session::builder()?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_intra_threads(2)?
+            .commit_from_file(model_path)
+            .with_context(|| format!("failed to load model from {}", model_path.display()))?;
 
         Ok(Self { model })
     }
@@ -170,65 +134,15 @@ struct InferenceResult {
 }
 
 fn run_model(model: &mut Model, input: ndarray::Array4<f32>) -> Result<InferenceResult> {
-    #[cfg(feature = "backend-tract")]
-    {
-        let flat = input.into_raw_vec();
-        let tract_input = tract_ndarray::Array4::from_shape_vec(
-            (
-                1,
-                recognizer_common::INPUT_SIZE as usize,
-                recognizer_common::INPUT_SIZE as usize,
-                3,
-            ),
-            flat,
-        )
-        .map_err(|_| anyhow!("failed to reshape input for tract backend"))?;
-        let outputs = model
-            .run(tvec![tract_input.into_tensor().into()])
-            .context("failed to run handpose model")?;
-        return decode_tract_outputs(&outputs);
-    }
-
-    #[cfg(feature = "backend-ort")]
-    {
-        let tensor = OrtTensor::from_array(input)?;
-        let outputs = model
-            .run(ort::inputs![tensor])
-            .context("failed to run handpose model")?;
-        return decode_ort_outputs(&outputs);
-    }
+    let tensor: InputTensor = OrtTensor::from_array(input)?;
+    let outputs = model
+        .run(ort::inputs![tensor])
+        .context("failed to run handpose model")?;
+    decode_ort_outputs(&outputs)
 }
 
-#[cfg(feature = "backend-tract")]
-fn decode_tract_outputs(outputs: &[TValue]) -> Result<InferenceResult> {
-    let coords = outputs
-        .get(0)
-        .ok_or_else(|| anyhow!("model returned no landmarks output"))?
-        .to_array_view::<f32>()?;
-    let flattened: Vec<f32> = coords.iter().copied().collect();
-    let landmarks = recognizer_common::decode_landmarks(&flattened)?;
-
-    let confidence = outputs
-        .get(1)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-    let handedness = outputs
-        .get(2)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-
-    Ok(InferenceResult {
-        landmarks,
-        confidence,
-        handedness,
-    })
-}
-
-#[cfg(feature = "backend-ort")]
 fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<InferenceResult> {
-    if outputs.is_empty() {
+    if outputs.len() == 0 {
         return Err(anyhow!("model returned no outputs"));
     }
 
@@ -236,16 +150,24 @@ fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<Infe
     let flattened: Vec<f32> = coords.iter().copied().collect();
     let landmarks = recognizer_common::decode_landmarks(&flattened)?;
 
-    let confidence = outputs
-        .get(1)
-        .and_then(|t| t.try_extract_array::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-    let handedness = outputs
-        .get(2)
-        .and_then(|t| t.try_extract_array::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
+    let confidence = if outputs.len() > 1 {
+        outputs[1]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let handedness = if outputs.len() > 2 {
+        outputs[2]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
 
     Ok(InferenceResult {
         landmarks,

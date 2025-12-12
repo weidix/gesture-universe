@@ -66,69 +66,56 @@ if [ -f "$DEPS_FILE" ]; then
   sed -i.bak 's/5ea4d05e62d7f954a46b3213f9b2535bdd866803/51982be81bbe52572b54180454df11a3ece9a934/' "$DEPS_FILE"
 fi
 
+# Download and apply patches from ort-artifacts
+PATCHES_REPO="$OUT_DIR/ort-artifacts"
+PATCHES_DIR="$PATCHES_REPO/src/patches/all"
+PATCHES_COMMIT="77ec493e3495901a361469951ab992181e52fd05"
+
+if [ ! -d "$PATCHES_REPO" ]; then
+  echo "Cloning ort-artifacts repository..."
+  git clone https://github.com/pykeio/ort-artifacts.git "$PATCHES_REPO"
+  pushd "$PATCHES_REPO" >/dev/null
+  git checkout "$PATCHES_COMMIT"
+  popd >/dev/null
+else
+  echo "ort-artifacts repository already exists, using existing patches..."
+fi
+
+echo "Applying patches to ONNX Runtime sources..."
 pushd "$SRC_DIR" >/dev/null
+for patch in "$PATCHES_DIR"/*.patch; do
+  if [ -f "$patch" ]; then
+    echo "  Applying $(basename "$patch")..."
+    if patch -p1 -N -r - < "$patch" 2>/dev/null; then
+      echo "    ✓ Applied successfully"
+    else
+      echo "    ⚠ Skipped (already applied or not applicable)"
+    fi
+  fi
+done
+popd >/dev/null
+
+pushd "$SRC_DIR" >/dev/null
+
+# Set build directory to platform-independent location
+LIB_DIR="$OUT_DIR/build"
+
 BUILD_ARGS=(
-  --config Release 
+  --config MinSizeRel
   --parallel 
   --skip_tests 
-  --use_full_protobuf
-  --cmake_extra_defines CMAKE_C_FLAGS="-fPIC" CMAKE_CXX_FLAGS="-fPIC -stdlib=libc++"
+  --disable_ml_ops
+  --disable_rtti
+  --build_dir "$LIB_DIR"
 )
 
 if [ -n "$OPS_CONFIG" ]; then
   echo "Using operator config at $OPS_CONFIG"
-  BUILD_ARGS+=(--minimal_build --include_ops_by_config "$OPS_CONFIG")
+  BUILD_ARGS+=(--include_ops_by_config "$OPS_CONFIG")
 fi
-
-# Prevent CMake from using Homebrew's incompatible protobuf 33.1.0
-# CMAKE_IGNORE_PREFIX_PATH tells CMake to completely ignore these paths during find_package
-export CMAKE_IGNORE_PREFIX_PATH="/opt/homebrew"
-export CMAKE_PREFIX_PATH=""
 
 ./build.sh "${BUILD_ARGS[@]}"
 popd >/dev/null
-
-# Copy build artifacts to platform-independent directory
-LIB_DIR="$OUT_DIR/lib"
-mkdir -p "$LIB_DIR"
-
-# Detect platform-specific build directory
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  BUILD_DIR="$SRC_DIR/build/MacOS/Release"
-elif [[ "$OSTYPE" == "linux"* ]]; then
-  BUILD_DIR="$SRC_DIR/build/Linux/Release"
-else
-  echo "Unsupported platform: $OSTYPE" >&2
-  exit 1
-fi
-
-if [ -d "$BUILD_DIR" ]; then
-  echo "Copying build artifacts to $LIB_DIR..."
-  # Copy only the necessary files, skip permission denied files
-  rsync -av --exclude='_deps/protoc_binary-src' "$BUILD_DIR"/ "$LIB_DIR/" 2>/dev/null || cp -r "$BUILD_DIR"/* "$LIB_DIR/" 2>/dev/null || true
-  echo "Build artifacts copied successfully"
-  
-  # Create a linker config file with all required libraries
-  echo "Creating linker configuration..."
-  cat > "$LIB_DIR/onnxruntime_link_libs.txt" <<EOF
-# Add all required ONNX Runtime static libraries
-# This file is used by the build system to link all necessary libraries
-EOF
-  
-  # List all onnxruntime libraries
-  for lib in "$LIB_DIR"/libonnxruntime_*.a "$LIB_DIR"/libonnx*.a; do
-    if [ -f "$lib" ]; then
-      echo "$(basename "$lib" .a)" | sed 's/^lib//' >> "$LIB_DIR/onnxruntime_link_libs.txt"
-    fi
-  done
-  
-  echo "Library configuration created at $LIB_DIR/onnxruntime_link_libs.txt"
-  
-  cd "$ROOT_DIR"
-else
-  echo "Build directory not found: $BUILD_DIR" >&2
-  exit 1
-fi
 
 echo "ONNX Runtime build finished under $SRC_DIR"
 echo "Build artifacts available at $LIB_DIR"

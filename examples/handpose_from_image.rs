@@ -1,8 +1,3 @@
-#[cfg(all(feature = "backend-tract", feature = "backend-ort"))]
-compile_error!("Enable exactly one backend feature: backend-tract or backend-ort.");
-#[cfg(not(any(feature = "backend-tract", feature = "backend-ort")))]
-compile_error!("Enable at least one backend feature: backend-tract or backend-ort.");
-
 #[path = "../src/model_download.rs"]
 mod model_download;
 
@@ -11,28 +6,14 @@ use image::{imageops::FilterType, Rgba, RgbaImage};
 use model_download::{default_model_path, ensure_model_available};
 use std::path::PathBuf;
 
-#[cfg(feature = "backend-ort")]
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor as OrtTensor,
 };
-#[cfg(feature = "backend-tract")]
-use tract_onnx::prelude::*;
 
-#[cfg(feature = "backend-ort")]
 type Model = Session;
-#[cfg(feature = "backend-tract")]
-type Model = TypedRunnableModel<TypedModel>;
-
-#[cfg(feature = "backend-ort")]
 type InputArray = ndarray::Array4<f32>;
-#[cfg(feature = "backend-tract")]
-type InputArray = tract_ndarray::Array4<f32>;
-
-#[cfg(feature = "backend-ort")]
 type InputTensor = OrtTensor<f32>;
-#[cfg(feature = "backend-tract")]
-type InputTensor = tract_onnx::prelude::Tensor;
 
 struct InferenceResult {
     landmarks: Vec<[f32; 3]>,
@@ -124,33 +105,12 @@ fn main() -> Result<()> {
 }
 
 fn load_model(model_path: &PathBuf) -> Result<Model> {
-    #[cfg(feature = "backend-tract")]
-    {
-        let mut model = tract_onnx::onnx().model_for_path(model_path)?;
-        model.set_input_fact(
-            0,
-            InferenceFact::dt_shape(
-                f32::datum_type(),
-                tvec![
-                    1.to_dim(),
-                    (INPUT_SIZE as usize).to_dim(),
-                    (INPUT_SIZE as usize).to_dim(),
-                    3.to_dim()
-                ],
-            ),
-        )?;
-        Ok(model.into_optimized()?.into_runnable()?)
-    }
-
-    #[cfg(feature = "backend-ort")]
-    {
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(2)?
-            .commit_from_file(model_path)
-            .with_context(|| format!("failed to load model from {}", model_path.display()))?;
-        Ok(session)
-    }
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(2)?
+        .commit_from_file(model_path)
+        .with_context(|| format!("failed to load model from {}", model_path.display()))?;
+    Ok(session)
 }
 
 fn prepare_image(path: &PathBuf) -> Result<(InputTensor, RgbaImage, LetterboxInfo)> {
@@ -201,67 +161,16 @@ fn prepare_image(path: &PathBuf) -> Result<(InputTensor, RgbaImage, LetterboxInf
 }
 
 fn array_to_input(arr: InputArray) -> Result<InputTensor> {
-    #[cfg(feature = "backend-tract")]
-    {
-        Ok(arr.into_tensor())
-    }
-
-    #[cfg(feature = "backend-ort")]
-    {
-        OrtTensor::from_array(arr).context("failed to build ORT tensor from input image")
-    }
+    OrtTensor::from_array(arr).context("failed to build ORT tensor from input image")
 }
 
 fn infer_landmarks(model: &mut Model, input: InputTensor) -> Result<InferenceResult> {
-    #[cfg(feature = "backend-tract")]
-    {
-        let outputs = model.run(tvec![input.into()])?;
-        decode_tract_outputs(&outputs)
-    }
-
-    #[cfg(feature = "backend-ort")]
-    {
-        let outputs = model.run(ort::inputs![input])?;
-        decode_ort_outputs(&outputs)
-    }
+    let outputs = model.run(ort::inputs![input])?;
+    decode_ort_outputs(&outputs)
 }
 
-#[cfg(feature = "backend-tract")]
-fn decode_tract_outputs(outputs: &[TValue]) -> Result<InferenceResult> {
-    if outputs.is_empty() {
-        return Err(anyhow!("model returned no outputs"));
-    }
-
-    let coords = outputs[0].to_array_view::<f32>()?;
-    let coords = coords
-        .to_shape((NUM_LANDMARKS, 3))
-        .map_err(|_| anyhow!("unexpected landmarks shape"))?;
-    let mut landmarks = Vec::with_capacity(NUM_LANDMARKS);
-    for row in coords.outer_iter() {
-        landmarks.push([row[0], row[1], row[2]]);
-    }
-
-    let confidence = outputs
-        .get(1)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-    let handedness = outputs
-        .get(2)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-
-    Ok(InferenceResult {
-        landmarks,
-        confidence,
-        handedness,
-    })
-}
-
-#[cfg(feature = "backend-ort")]
 fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<InferenceResult> {
-    if outputs.is_empty() {
+    if outputs.len() == 0 {
         return Err(anyhow!("model returned no outputs"));
     }
 
@@ -277,16 +186,24 @@ fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<Infe
         return Err(anyhow!("unexpected landmarks shape"));
     }
 
-    let confidence = outputs
-        .get(1)
-        .and_then(|t| t.try_extract_array::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-    let handedness = outputs
-        .get(2)
-        .and_then(|t| t.try_extract_array::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
+    let confidence = if outputs.len() > 1 {
+        outputs[1]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let handedness = if outputs.len() > 2 {
+        outputs[2]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
 
     Ok(InferenceResult {
         landmarks,
