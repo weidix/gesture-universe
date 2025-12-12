@@ -2,18 +2,24 @@
 mod gesture;
 #[path = "../src/model_download.rs"]
 mod model_download;
-#[allow(dead_code)]
-#[path = "../src/recognizer.rs"]
-mod recognizer;
+#[path = "../src/recognizer/common.rs"]
+mod recognizer_common;
 #[allow(dead_code)]
 #[path = "../src/types.rs"]
 mod types;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use gesture::GestureClassifier;
-use recognizer::HandposeModel;
 use std::path::PathBuf;
 use types::Frame;
+
+use ort::{
+    session::{builder::GraphOptimizationLevel, Session},
+    value::Tensor as OrtTensor,
+};
+
+type Model = Session;
+type InputTensor = OrtTensor<f32>;
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -30,7 +36,7 @@ fn main() -> Result<()> {
 
     let model_path = model_download::default_model_path();
     model_download::ensure_model_available(&model_path)?;
-    let model = HandposeModel::new(&model_path)?;
+    let mut model = HandposeModel::new(&model_path)?;
     let mut classifier = GestureClassifier::new();
 
     println!(
@@ -87,6 +93,87 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+struct HandposeModel {
+    model: Model,
+}
+
+impl HandposeModel {
+    fn new(model_path: &PathBuf) -> Result<Self> {
+        model_download::ensure_model_available(model_path)?;
+
+        let model = Session::builder()?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_intra_threads(2)?
+            .commit_from_file(model_path)
+            .with_context(|| format!("failed to load model from {}", model_path.display()))?;
+
+        Ok(Self { model })
+    }
+
+    fn infer_landmarks(&mut self, frame: &Frame) -> Result<recognizer_common::HandposeOutput> {
+        let (input, letterbox) = recognizer_common::prepare_frame(frame)?;
+        let inference = run_model(&mut self.model, input)?;
+
+        let projected = recognizer_common::project_landmarks(&inference.landmarks, &letterbox);
+
+        Ok(recognizer_common::HandposeOutput {
+            raw_landmarks: inference.landmarks,
+            projected_landmarks: projected,
+            confidence: inference.confidence.clamp(0.0, 1.0),
+            handedness: inference.handedness,
+        })
+    }
+}
+
+struct InferenceResult {
+    landmarks: Vec<[f32; 3]>,
+    confidence: f32,
+    handedness: f32,
+}
+
+fn run_model(model: &mut Model, input: ndarray::Array4<f32>) -> Result<InferenceResult> {
+    let tensor: InputTensor = OrtTensor::from_array(input)?;
+    let outputs = model
+        .run(ort::inputs![tensor])
+        .context("failed to run handpose model")?;
+    decode_ort_outputs(&outputs)
+}
+
+fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<InferenceResult> {
+    if outputs.len() == 0 {
+        return Err(anyhow!("model returned no outputs"));
+    }
+
+    let coords = outputs[0].try_extract_array::<f32>()?;
+    let flattened: Vec<f32> = coords.iter().copied().collect();
+    let landmarks = recognizer_common::decode_landmarks(&flattened)?;
+
+    let confidence = if outputs.len() > 1 {
+        outputs[1]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let handedness = if outputs.len() > 2 {
+        outputs[2]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    Ok(InferenceResult {
+        landmarks,
+        confidence,
+        handedness,
+    })
 }
 
 fn load_frame(path: &PathBuf) -> Result<Frame> {

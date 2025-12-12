@@ -28,9 +28,8 @@ panic = "abort"
 strip = "symbols"
 
 [features]
-default = ["camera-nokhwa", "handpose-tract"]
+default = ["camera-nokhwa"]
 camera-nokhwa = ["nokhwa"]
-handpose-tract = []
 
 [dependencies]
 gpui = "0.2"
@@ -39,10 +38,24 @@ gpui-component-assets = "0.5"
 crossbeam-channel = "0.5"
 anyhow = "1"
 thiserror = "1"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+] }
 log = "0.4"
 env_logger = "0.11"
-nokhwa = { version = "0.10", default-features = false, features = ["input-native", "output-threaded", "decoding"], optional = true }
-tract-onnx = { version = "0.21" }
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
+nokhwa = { version = "0.10", default-features = false, features = [
+    "input-native",
+    "output-threaded",
+    "decoding",
+], optional = true }
+reqwest = { version = "0.11", default-features = false, features = [
+    "blocking",
+    "rustls-tls",
+] }
 indicatif = "0.17"
+ndarray = { version = "0.16", default-features = false, features = ["std"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = [
+    "ndarray",
+    "std",
+] }

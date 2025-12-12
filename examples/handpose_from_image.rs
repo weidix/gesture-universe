@@ -1,12 +1,25 @@
 #[path = "../src/model_download.rs"]
 mod model_download;
 
+use anyhow::{anyhow, Context, Result};
+use image::{imageops::FilterType, Rgba, RgbaImage};
 use model_download::{default_model_path, ensure_model_available};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
-use image::{Rgba, RgbaImage, imageops::FilterType};
-use tract_onnx::prelude::*;
+use ort::{
+    session::{builder::GraphOptimizationLevel, Session},
+    value::Tensor as OrtTensor,
+};
+
+type Model = Session;
+type InputArray = ndarray::Array4<f32>;
+type InputTensor = OrtTensor<f32>;
+
+struct InferenceResult {
+    landmarks: Vec<[f32; 3]>,
+    confidence: f32,
+    handedness: f32,
+}
 
 const INPUT_SIZE: u32 = 224;
 const NUM_LANDMARKS: usize = 21;
@@ -64,18 +77,18 @@ fn main() -> Result<()> {
     let (input_tensor, mut canvas, letterbox) =
         prepare_image(&input_image).context("failed to read input image")?;
     ensure_model_available(&model_path)?;
-    let model = load_model(&model_path)?;
+    let mut model = load_model(&model_path)?;
 
     println!(
         "Running inference with model {} on {}",
         model_path.display(),
         input_image.display()
     );
-    let outputs = model
-        .run(tvec![input_tensor.into()])
-        .context("inference failed")?;
-
-    let (landmarks, confidence, handedness) = decode_outputs(&outputs)?;
+    let InferenceResult {
+        landmarks,
+        confidence,
+        handedness,
+    } = infer_landmarks(&mut model, input_tensor).context("inference failed")?;
     println!(
         "Model returned confidence {:.3} (handedness {:.3}, 1.0 = right hand)",
         confidence, handedness
@@ -91,25 +104,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_model(model_path: &PathBuf) -> TractResult<TypedRunnableModel<TypedModel>> {
-    let mut model = tract_onnx::onnx().model_for_path(model_path)?;
-    model.set_input_fact(
-        0,
-        InferenceFact::dt_shape(
-            f32::datum_type(),
-            tvec![
-                1.to_dim(),
-                (INPUT_SIZE as usize).to_dim(),
-                (INPUT_SIZE as usize).to_dim(),
-                3.to_dim()
-            ],
-        ),
-    )?;
-
-    model.into_optimized()?.into_runnable()
+fn load_model(model_path: &PathBuf) -> Result<Model> {
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(2)?
+        .commit_from_file(model_path)
+        .with_context(|| format!("failed to load model from {}", model_path.display()))?;
+    Ok(session)
 }
 
-fn prepare_image(path: &PathBuf) -> Result<(Tensor, RgbaImage, LetterboxInfo)> {
+fn prepare_image(path: &PathBuf) -> Result<(InputTensor, RgbaImage, LetterboxInfo)> {
     let image = image::open(path)
         .with_context(|| format!("failed to open image {}", path.display()))?
         .to_rgba8();
@@ -134,8 +138,7 @@ fn prepare_image(path: &PathBuf) -> Result<(Tensor, RgbaImage, LetterboxInfo)> {
         }
     }
 
-    let mut input =
-        tract_ndarray::Array4::<f32>::zeros((1, INPUT_SIZE as usize, INPUT_SIZE as usize, 3));
+    let mut input = InputArray::zeros((1, INPUT_SIZE as usize, INPUT_SIZE as usize, 3));
     for y in 0..INPUT_SIZE {
         for x in 0..INPUT_SIZE {
             let pixel = letterboxed.get_pixel(x, y).0;
@@ -153,35 +156,60 @@ fn prepare_image(path: &PathBuf) -> Result<(Tensor, RgbaImage, LetterboxInfo)> {
         orig_h,
     };
 
-    Ok((input.into_tensor(), image, letterbox))
+    let tensor = array_to_input(input)?;
+    Ok((tensor, image, letterbox))
 }
 
-fn decode_outputs(outputs: &[TValue]) -> Result<(Vec<[f32; 3]>, f32, f32)> {
-    if outputs.is_empty() {
+fn array_to_input(arr: InputArray) -> Result<InputTensor> {
+    OrtTensor::from_array(arr).context("failed to build ORT tensor from input image")
+}
+
+fn infer_landmarks(model: &mut Model, input: InputTensor) -> Result<InferenceResult> {
+    let outputs = model.run(ort::inputs![input])?;
+    decode_ort_outputs(&outputs)
+}
+
+fn decode_ort_outputs(outputs: &ort::session::SessionOutputs<'_>) -> Result<InferenceResult> {
+    if outputs.len() == 0 {
         return Err(anyhow!("model returned no outputs"));
     }
 
-    let coords = outputs[0].to_array_view::<f32>()?;
-    let coords = coords
-        .to_shape((NUM_LANDMARKS, 3))
-        .map_err(|_| anyhow!("unexpected landmarks shape"))?;
+    let coords = outputs[0].try_extract_array::<f32>()?;
     let mut landmarks = Vec::with_capacity(NUM_LANDMARKS);
-    for row in coords.outer_iter() {
-        landmarks.push([row[0], row[1], row[2]]);
+    for chunk in coords.iter().copied().collect::<Vec<_>>().chunks_exact(3) {
+        if landmarks.len() >= NUM_LANDMARKS {
+            break;
+        }
+        landmarks.push([chunk[0], chunk[1], chunk[2]]);
+    }
+    if landmarks.len() < NUM_LANDMARKS {
+        return Err(anyhow!("unexpected landmarks shape"));
     }
 
-    let confidence = outputs
-        .get(1)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
-    let handedness = outputs
-        .get(2)
-        .and_then(|t| t.to_array_view::<f32>().ok())
-        .and_then(|v| v.iter().next().copied())
-        .unwrap_or(0.0);
+    let confidence = if outputs.len() > 1 {
+        outputs[1]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let handedness = if outputs.len() > 2 {
+        outputs[2]
+            .try_extract_array::<f32>()
+            .ok()
+            .and_then(|v| v.iter().next().copied())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
 
-    Ok((landmarks, confidence, handedness))
+    Ok(InferenceResult {
+        landmarks,
+        confidence,
+        handedness,
+    })
 }
 
 fn project_landmarks(landmarks: &[[f32; 3]], letterbox: &LetterboxInfo) -> Vec<(f32, f32)> {

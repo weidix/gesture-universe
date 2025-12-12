@@ -1,0 +1,2 @@
+[env]
+ORT_LIB_LOCATION = { value = "target/onnxruntime/build/MinSizeRel", relative = true }

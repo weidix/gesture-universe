@@ -18,7 +18,7 @@ use image::{Frame as ImageFrame, ImageBuffer, Rgba};
 
 use crate::{
     camera::{self, CameraDevice, CameraStream},
-    model_download::{DownloadEvent, default_model_path, ensure_model_available_with_callback},
+    model_download::{DownloadEvent, ensure_model_available_with_callback},
     recognizer::{self, RecognizerBackend},
     types::{Frame, GestureResult},
 };

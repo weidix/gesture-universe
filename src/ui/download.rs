@@ -1,6 +1,6 @@
 use super::{
     AnyElement, AppView, Context, DownloadEvent, DownloadMessage, DownloadState, IntoElement,
-    ParentElement, RecognizerBackend, Sender, Styled, StyledExt, default_model_path, div,
+    ParentElement, RecognizerBackend, Sender, Styled, StyledExt, div,
     ensure_model_available_with_callback, h_flex, thread, v_flex,
 };
 use gpui::{SharedString, px};
@@ -158,10 +158,7 @@ pub(super) fn spawn_model_download(
     tx: Sender<DownloadMessage>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let model_path = match backend {
-            RecognizerBackend::HandposeTract { model_path } => model_path,
-            _ => default_model_path(),
-        };
+        let model_path = backend.model_path();
 
         let result = ensure_model_available_with_callback(&model_path, |event| {
             let _ = tx.send(DownloadMessage::Event(event));

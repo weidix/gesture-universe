@@ -1,11 +1,14 @@
 #[path = "../src/model_download.rs"]
 mod model_download;
 
+use anyhow::Result;
 use model_download::{default_model_path, ensure_model_available};
 use std::path::PathBuf;
 
-use anyhow::Result;
-use tract_onnx::prelude::*;
+use ort::{
+    session::{builder::GraphOptimizationLevel, Session},
+    value::ValueType,
+};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -17,43 +20,37 @@ fn main() -> Result<()> {
 
     println!("Loading model: {}", model_path.display());
     ensure_model_available(&model_path)?;
-    let mut model = tract_onnx::onnx().model_for_path(&model_path)?;
+    print_model_info(&model_path)?;
 
-    // The ONNX graph leaves some dims symbolic; seed the expected input shape so we
-    // can infer output shapes.
-    model.set_input_fact(
-        0,
-        InferenceFact::dt_shape(
-            f32::datum_type(),
-            tvec![1.to_dim(), 224.to_dim(), 224.to_dim(), 3.to_dim()],
-        ),
-    )?;
+    Ok(())
+}
 
-    let model = model.into_optimized()?;
+fn print_model_info(model_path: &PathBuf) -> Result<()> {
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(2)?
+        .commit_from_file(model_path)?;
 
-    println!("Nodes: {}", model.nodes().len());
     println!("Inputs:");
-    for (idx, outlet) in model.input_outlets()?.iter().enumerate() {
-        let fact = model.outlet_fact(*outlet)?;
+    for (idx, input) in session.inputs.iter().enumerate() {
         println!(
-            "  {}: name=\"{}\" type={:?} shape={:?}",
-            idx,
-            model.node(outlet.node).name,
-            fact.datum_type,
-            fact.shape
+            "  {}: name=\"{}\" type={:?}",
+            idx, input.name, input.input_type
         );
+        if let ValueType::Tensor { shape, .. } = &input.input_type {
+            println!("     shape={:?}", shape);
+        }
     }
 
     println!("Outputs:");
-    for (idx, outlet) in model.output_outlets()?.iter().enumerate() {
-        let fact = model.outlet_fact(*outlet)?;
+    for (idx, output) in session.outputs.iter().enumerate() {
         println!(
-            "  {}: name=\"{}\" type={:?} shape={:?}",
-            idx,
-            model.node(outlet.node).name,
-            fact.datum_type,
-            fact.shape
+            "  {}: name=\"{}\" type={:?}",
+            idx, output.name, output.output_type
         );
+        if let ValueType::Tensor { shape, .. } = &output.output_type {
+            println!("     shape={:?}", shape);
+        }
     }
 
     Ok(())
