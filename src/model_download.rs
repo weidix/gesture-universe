@@ -10,10 +10,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::blocking::Client;
 
 const MODEL_FILENAME: &str = "handpose_estimation_mediapipe_2023feb.onnx";
-const MODEL_URL: &str = "https://huggingface.co/opencv/handpose_estimation_mediapipe/resolve/main/handpose_estimation_mediapipe_2023feb.onnx?download=1";
+const MODEL_URL: &str = "https://github.com/214zzl995/gesture-universe/raw/main/models/handpose_estimation_mediapipe_2023feb.onnx";
 
 pub fn default_model_path() -> PathBuf {
-    PathBuf::from("handpose_estimation_mediapipe").join(MODEL_FILENAME)
+    PathBuf::from("models").join(MODEL_FILENAME)
 }
 
 #[derive(Clone, Debug)]

@@ -1,5 +1,4 @@
 /target
-/handpose_estimation_mediapipe
 /demo/image_with_landmarks.png
 /.venv
 .DS_Store
