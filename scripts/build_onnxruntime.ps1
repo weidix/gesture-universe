@@ -1,7 +1,4 @@
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
-
-<#
+﻿<#
 .SYNOPSIS
 Download and build ONNX Runtime v1.22.0 into target/onnxruntime.
 
@@ -24,7 +21,6 @@ Environment overrides:
   OPS_CONFIG  Operator config path passed to --include_ops_by_config
 #>
 
-[CmdletBinding()]
 param(
     [string]$OpsConfig,
     [switch]$Help
@@ -105,11 +101,20 @@ if (-not (Test-Path $PatchesDir)) {
 }
 
 Write-Host "Applying patches to ONNX Runtime sources..."
+
+$PatchExe = "patch"
+if (-not (Get-Command patch -ErrorAction SilentlyContinue)) {
+    $GitPatch = "C:\Program Files\Git\usr\bin\patch.exe"
+    if (Test-Path $GitPatch) {
+        $PatchExe = $GitPatch
+    }
+}
+
 Push-Location $SrcDir
 Get-ChildItem -Path $PatchesDir -Filter "*.patch" | ForEach-Object {
     $patch = $_
     Write-Host "  Applying $($patch.Name)..."
-    & patch -p1 -N -r - -i $patch.FullName 2>$null
+    & $PatchExe -p1 -N -r - -i $patch.FullName 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "    Applied successfully"
     } else {
