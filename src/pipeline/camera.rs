@@ -17,17 +17,19 @@ use nokhwa::{
         ApiBackend, CameraIndex, CameraInfo, FrameFormat, RequestedFormat, RequestedFormatType,
     },
 };
-use rayon::prelude::*;
 
+use super::rgba_converter;
 use crate::types::Frame;
 
 // Prefer pixel formats that are widely supported on macOS (the built-in cameras
 // often reject YUYV even though Nokhwa reports it).
 const PREFERRED_PIXEL_FORMATS: &[FrameFormat] = &[
-    FrameFormat::MJPEG,
-    FrameFormat::NV12,
     FrameFormat::RAWRGB,
     FrameFormat::RAWBGR,
+    FrameFormat::GRAY,
+    FrameFormat::YUYV,
+    FrameFormat::NV12,
+    FrameFormat::MJPEG,
 ];
 
 fn requested_formats() -> [RequestedFormat<'static>; 4] {
@@ -125,46 +127,44 @@ pub fn start_camera_stream(index: CameraIndex, recog_tx: Sender<Frame>) -> Resul
         };
 
         while !stop_flag.load(Ordering::Relaxed) {
+            let frame_start = Instant::now();
             let frame = match camera.frame() {
-                Ok(frame) => frame,
+                Ok(frame) => {
+                    log::debug!("camera.frame() took {:?}", frame_start.elapsed());
+                    frame
+                }
                 Err(err) => {
-                    log::warn!("camera frame read failed: {err:?}");
+                    log::warn!(
+                        "camera frame read failed (after {:?}): {err:?}",
+                        frame_start.elapsed()
+                    );
                     continue;
                 }
             };
 
-            let decoded = match frame.decode_image::<RgbFormat>() {
-                Ok(img) => img,
+            let frame_format = frame.source_frame_format();
+            log::debug!("camera frame raw format: {frame_format}");
+
+            let decode_start = Instant::now();
+            let converted = match rgba_converter::convert_camera_frame(&frame) {
+                Ok(rgba) => {
+                    log::debug!("convert_camera_frame took {:?}", decode_start.elapsed());
+                    rgba
+                }
                 Err(err) => {
-                    log::warn!("failed to decode camera frame: {err:?}");
+                    log::warn!(
+                        "failed to decode camera frame (after {:?}): {err:?}",
+                        decode_start.elapsed()
+                    );
                     continue;
                 }
             };
-
-            let (width, height) = decoded.dimensions();
-            let rgb = decoded.into_raw();
-            if rgb.is_empty() {
-                continue;
-            }
-
-            // Expand RGB to RGBA for the UI pipeline.
-            let pixel_count = rgb.len() / 3;
-            let mut rgba_bytes = vec![0u8; pixel_count * 4];
-            rgba_bytes
-                .par_chunks_mut(4)
-                .zip(rgb.par_chunks_exact(3))
-                .for_each(|(dst, src)| {
-                    dst[0] = src[0];
-                    dst[1] = src[1];
-                    dst[2] = src[2];
-                    dst[3] = 255;
-                });
 
             let frame_timestamp = Instant::now();
             let frame = Frame {
-                rgba: rgba_bytes,
-                width,
-                height,
+                rgba: converted.rgba,
+                width: converted.width,
+                height: converted.height,
                 timestamp: frame_timestamp,
             };
 

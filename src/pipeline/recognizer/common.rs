@@ -82,11 +82,9 @@ pub fn prepare_frame(frame: &Frame) -> Result<(Array4<f32>, LetterboxInfo)> {
             ]
         })
         .collect();
-    let input = Array4::<f32>::from_shape_vec(
-        (1, INPUT_SIZE as usize, INPUT_SIZE as usize, 3),
-        normalized,
-    )
-    .map_err(|err| anyhow!("failed to build input tensor: {err}"))?;
+    let input =
+        Array4::<f32>::from_shape_vec((1, INPUT_SIZE as usize, INPUT_SIZE as usize, 3), normalized)
+            .map_err(|err| anyhow!("failed to build input tensor: {err}"))?;
 
     let letterbox = LetterboxInfo {
         scale,

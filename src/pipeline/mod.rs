@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod compositor;
 pub mod recognizer;
+pub mod rgba_converter;
 pub mod skeleton;
 
 // Re-exports for convenience

@@ -51,6 +51,13 @@ nokhwa = { version = "0.10", default-features = false, features = [
     "output-threaded",
     "decoding",
 ], optional = true }
+yuv = { version = "0.8.9", default-features = false, features = [
+    "avx",
+    "sse",
+    "rdm",
+    "fast_mode",
+] }
+zune-jpeg = "0.5"
 reqwest = { version = "0.11", default-features = false, features = [
     "blocking",
     "rustls-tls",
