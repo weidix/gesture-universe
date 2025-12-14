@@ -17,9 +17,7 @@ use gpui_component::{ActiveTheme, Root, StyledExt, button::Button, h_flex, v_fle
 use image::{Frame as ImageFrame, ImageBuffer, Rgba};
 
 use crate::{
-    model_download::{
-        ModelDownloadEvent, ModelKind,
-    },
+    model_download::{ModelDownloadEvent, ModelKind},
     pipeline::{
         CameraDevice, CameraStream, CompositedFrame, RecognizerBackend, start_frame_compositor,
         start_recognizer,
@@ -65,8 +63,7 @@ pub fn launch_ui(
     };
 
     app.open_window(window_options, move |window, app| {
-        let view =
-            app.new(|_| AppView::new(camera_frame_rx, camera_frame_tx, recognizer_backend));
+        let view = app.new(|_| AppView::new(camera_frame_rx, camera_frame_tx, recognizer_backend));
         app.new(|cx| {
             let root = Root::new(view, window, cx);
             #[cfg(target_os = "macos")]

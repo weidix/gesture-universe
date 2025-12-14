@@ -6,17 +6,13 @@ use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
 
 use super::{
-    HandposeEngine,
-    RecognizerBackend,
+    HandposeEngine, RecognizerBackend,
     common::{self, HandposeOutput},
     palm::{PalmDetector, PalmDetectorConfig, crop_from_palm, pick_primary_region},
     run_worker_loop,
 };
 use crate::{
-    model_download::{
-        ensure_handpose_estimator_model_ready,
-        ensure_palm_detector_model_ready,
-    },
+    model_download::{ensure_handpose_estimator_model_ready, ensure_palm_detector_model_ready},
     types::{Frame, RecognizedFrame},
 };
 
@@ -29,7 +25,9 @@ pub fn start_worker(
         let handpose_estimator_model_path = backend.handpose_estimator_model_path();
         let palm_detector_model_path = backend.palm_detector_model_path();
 
-        if let Err(err) = ensure_handpose_estimator_model_ready(&handpose_estimator_model_path, |_evt| {}) {
+        if let Err(err) =
+            ensure_handpose_estimator_model_ready(&handpose_estimator_model_path, |_evt| {})
+        {
             log::error!(
                 "failed to prepare handpose model at {}: {err:?}",
                 handpose_estimator_model_path.display()
@@ -45,7 +43,8 @@ pub fn start_worker(
             return;
         }
 
-        let engine = match OrtEngine::new(&handpose_estimator_model_path, &palm_detector_model_path) {
+        let engine = match OrtEngine::new(&handpose_estimator_model_path, &palm_detector_model_path)
+        {
             Ok(engine) => {
                 log::info!(
                     "handpose ORT backend ready using {} and palm detector {}",

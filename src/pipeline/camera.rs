@@ -142,9 +142,7 @@ pub fn start_camera_stream(index: CameraIndex, frame_tx: Sender<Frame>) -> Resul
             let converted = match rgba_converter::convert_camera_frame(&frame) {
                 Ok(rgba) => rgba,
                 Err(err) => {
-                    log::warn!(
-                        "failed to decode camera frame {err:?}"
-                    );
+                    log::warn!("failed to decode camera frame {err:?}");
                     continue;
                 }
             };

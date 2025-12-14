@@ -4,7 +4,9 @@ mod model_download;
 
 use anyhow::{Context, Result};
 use image::{RgbaImage, imageops::FilterType};
-use model_download::{default_handpose_estimator_model_path, ensure_handpose_estimator_model_ready};
+use model_download::{
+    default_handpose_estimator_model_path, ensure_handpose_estimator_model_ready,
+};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},

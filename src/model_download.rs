@@ -109,7 +109,10 @@ where
         ModelKind::HandposeEstimator => "handpose estimator",
         ModelKind::PalmDetector => "palm detector",
     };
-    log::info!("downloading {model_label} model from {url} to {}", dest.display());
+    log::info!(
+        "downloading {model_label} model from {url} to {}",
+        dest.display()
+    );
 
     let client = Client::new();
     let mut response = client
@@ -120,7 +123,10 @@ where
         .context("model download returned error status")?;
 
     let total_size = response.content_length();
-    on_event(ModelDownloadEvent::Started { model, total: total_size });
+    on_event(ModelDownloadEvent::Started {
+        model,
+        total: total_size,
+    });
 
     let tmp_path = dest.with_extension("download");
     let mut file = fs::File::create(&tmp_path)
@@ -160,10 +166,7 @@ where
     Ok(())
 }
 
-pub fn ensure_palm_detector_model_ready<F>(
-    model_path: &Path,
-    mut on_event: F,
-) -> anyhow::Result<()>
+pub fn ensure_palm_detector_model_ready<F>(model_path: &Path, mut on_event: F) -> anyhow::Result<()>
 where
     F: FnMut(ModelDownloadEvent),
 {
@@ -236,8 +239,7 @@ fn create_progress_bar(total_size: Option<u64>) -> ProgressBar {
         }
         _ => {
             let pb = ProgressBar::new_spinner();
-            let style = ProgressStyle::with_template("{spinner:.green} downloading model")
-                .unwrap();
+            let style = ProgressStyle::with_template("{spinner:.green} downloading model").unwrap();
             pb.set_style(style);
             pb.enable_steady_tick(Duration::from_millis(100));
             pb

@@ -1,24 +1,22 @@
 #[allow(dead_code)]
+#[path = "../src/pipeline/recognizer/common.rs"]
+mod common;
+#[allow(dead_code)]
 #[path = "../src/model_download.rs"]
 mod model_download;
 #[allow(dead_code)]
-#[path = "../src/types.rs"]
-mod types;
+#[path = "../src/pipeline/recognizer/palm/mod.rs"]
+mod palm;
 #[allow(dead_code)]
 #[path = "../src/pipeline/skeleton.rs"]
 mod skeleton;
 #[allow(dead_code)]
-#[path = "../src/pipeline/recognizer/common.rs"]
-mod common;
-#[allow(dead_code)]
-#[path = "../src/pipeline/recognizer/palm/mod.rs"]
-mod palm;
+#[path = "../src/types.rs"]
+mod types;
 
 use anyhow::{Context, Result, anyhow};
 use image::RgbaImage;
-use model_download::{
-    default_palm_detector_model_path, ensure_palm_detector_model_ready,
-};
+use model_download::{default_palm_detector_model_path, ensure_palm_detector_model_ready};
 use std::path::PathBuf;
 use types::{Frame, PalmRegion};
 
@@ -51,7 +49,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("Detected {} palms in {}", palms.len(), input_image.display());
+    println!(
+        "Detected {} palms in {}",
+        palms.len(),
+        input_image.display()
+    );
 
     overlay(&mut frame, &palms);
 

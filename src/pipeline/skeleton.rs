@@ -74,7 +74,17 @@ pub fn draw_palm_regions(
         }
         let [x1, y1, x2, y2] = region.bbox;
         let rect_color = [16u8, 185u8, 129u8, 200u8];
-        draw_rect(buffer, width, height, x1, y1, x2, y2, rect_color, PALM_BOX_THICKNESS);
+        draw_rect(
+            buffer,
+            width,
+            height,
+            x1,
+            y1,
+            x2,
+            y2,
+            rect_color,
+            PALM_BOX_THICKNESS,
+        );
 
         let point_color = [244u8, 114u8, 182u8, 230u8];
         for &(lx, ly) in &region.landmarks {

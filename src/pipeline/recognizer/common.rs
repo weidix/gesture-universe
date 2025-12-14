@@ -102,9 +102,11 @@ pub fn prepare_frame_with_size(
             ]
         })
         .collect();
-    let input =
-        Array4::<f32>::from_shape_vec((1, target_size as usize, target_size as usize, 3), normalized)
-            .map_err(|err| anyhow!("failed to build input tensor: {err}"))?;
+    let input = Array4::<f32>::from_shape_vec(
+        (1, target_size as usize, target_size as usize, 3),
+        normalized,
+    )
+    .map_err(|err| anyhow!("failed to build input tensor: {err}"))?;
 
     let letterbox = LetterboxInfo {
         scale,
@@ -164,7 +166,8 @@ pub fn prepare_rotated_crop(
             expected_len
         ));
     }
-    let mut data = Vec::with_capacity((output_size as usize).saturating_mul(output_size as usize * 3));
+    let mut data =
+        Vec::with_capacity((output_size as usize).saturating_mul(output_size as usize * 3));
     let half = output_size as f32 / 2.0;
     let scale = side / output_size as f32;
     let cos = angle.cos();
@@ -181,11 +184,9 @@ pub fn prepare_rotated_crop(
         }
     }
 
-    let array = Array4::<f32>::from_shape_vec(
-        (1, output_size as usize, output_size as usize, 3),
-        data,
-    )
-    .map_err(|err| anyhow!("failed to build rotated crop tensor: {err}"))?;
+    let array =
+        Array4::<f32>::from_shape_vec((1, output_size as usize, output_size as usize, 3), data)
+            .map_err(|err| anyhow!("failed to build rotated crop tensor: {err}"))?;
 
     let transform = CropTransform {
         center,
@@ -262,20 +263,8 @@ fn sample_rgb(frame: &Frame, x: f32, y: f32) -> [f32; 3] {
 
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
     [
-        lerp(
-            lerp(c00[0], c10[0], fx),
-            lerp(c01[0], c11[0], fx),
-            fy,
-        ),
-        lerp(
-            lerp(c00[1], c10[1], fx),
-            lerp(c01[1], c11[1], fx),
-            fy,
-        ),
-        lerp(
-            lerp(c00[2], c10[2], fx),
-            lerp(c01[2], c11[2], fx),
-            fy,
-        ),
+        lerp(lerp(c00[0], c10[0], fx), lerp(c01[0], c11[0], fx), fy),
+        lerp(lerp(c00[1], c10[1], fx), lerp(c01[1], c11[1], fx), fy),
+        lerp(lerp(c00[2], c10[2], fx), lerp(c01[2], c11[2], fx), fy),
     ]
 }

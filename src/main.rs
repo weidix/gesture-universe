@@ -24,9 +24,12 @@ fn main() -> Result<()> {
         .run(move |app| {
             gpui_component::init(app);
 
-            if let Err(err) =
-                ui::launch_ui(app, camera_frame_rx, camera_frame_tx, recognizer_backend.clone())
-            {
+            if let Err(err) = ui::launch_ui(
+                app,
+                camera_frame_rx,
+                camera_frame_tx,
+                recognizer_backend.clone(),
+            ) {
                 eprintln!("failed to launch ui: {err:?}");
             }
         });

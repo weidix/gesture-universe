@@ -1,10 +1,9 @@
 use super::{
-    AnyElement, AppView, Context, DownloadMessage, DownloadState, IntoElement,
-    ParentElement, RecognizerBackend, Sender, Styled, StyledExt, div, h_flex, thread, v_flex,
+    AnyElement, AppView, Context, DownloadMessage, DownloadState, IntoElement, ParentElement,
+    RecognizerBackend, Sender, Styled, StyledExt, div, h_flex, thread, v_flex,
 };
 use crate::model_download::{
-    ensure_handpose_estimator_model_ready,
-    ensure_palm_detector_model_ready,
+    ensure_handpose_estimator_model_ready, ensure_palm_detector_model_ready,
 };
 use gpui::{SharedString, px};
 
@@ -149,22 +148,17 @@ pub(super) fn spawn_model_download(
         let handpose_estimator_model_path = backend.handpose_estimator_model_path();
         let palm_detector_model_path = backend.palm_detector_model_path();
 
-        if let Err(err) = ensure_palm_detector_model_ready(
-            &palm_detector_model_path,
-            |event| {
-                let _ = tx.send(DownloadMessage::Event(event));
-            },
-        ) {
+        if let Err(err) = ensure_palm_detector_model_ready(&palm_detector_model_path, |event| {
+            let _ = tx.send(DownloadMessage::Event(event));
+        }) {
             log::error!("failed to prepare palm detector model: {err:?}");
             let _ = tx.send(DownloadMessage::Error(format!("{err:#}")));
             return;
         }
-        let result = ensure_handpose_estimator_model_ready(
-            &handpose_estimator_model_path,
-            |event| {
+        let result =
+            ensure_handpose_estimator_model_ready(&handpose_estimator_model_path, |event| {
                 let _ = tx.send(DownloadMessage::Event(event));
-            },
-        );
+            });
 
         if let Err(err) = result {
             log::error!("failed to download model: {err:?}");

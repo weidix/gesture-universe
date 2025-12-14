@@ -1,10 +1,6 @@
 mod anchors;
 
-use std::{
-    cmp::Ordering,
-    f32::consts::PI,
-    path::PathBuf,
-};
+use std::{cmp::Ordering, f32::consts::PI, path::PathBuf};
 
 use anchors::{ANCHORS, NUM_ANCHORS};
 use anyhow::{Context, Result, anyhow};
@@ -45,7 +41,9 @@ impl PalmDetector {
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(2)?
             .commit_from_file(model_path)
-            .with_context(|| format!("failed to load palm detector from {}", model_path.display()))?;
+            .with_context(|| {
+                format!("failed to load palm detector from {}", model_path.display())
+            })?;
 
         Ok(Self { session, cfg })
     }
@@ -73,9 +71,13 @@ impl PalmDetector {
         let score_shape = scores.shape().to_vec();
 
         let decoded = decode_palm_outputs(
-            box_and_landmarks.as_slice().ok_or_else(|| anyhow!("palm boxes not contiguous"))?,
+            box_and_landmarks
+                .as_slice()
+                .ok_or_else(|| anyhow!("palm boxes not contiguous"))?,
             &box_shape,
-            scores.as_slice().ok_or_else(|| anyhow!("palm scores not contiguous"))?,
+            scores
+                .as_slice()
+                .ok_or_else(|| anyhow!("palm scores not contiguous"))?,
             &score_shape,
             &letterbox,
             &self.cfg,
@@ -190,7 +192,14 @@ fn decode_palm_outputs(
             continue;
         }
 
-        clamp_box(&mut x1, &mut y1, &mut x2, &mut y2, letterbox.orig_w, letterbox.orig_h);
+        clamp_box(
+            &mut x1,
+            &mut y1,
+            &mut x2,
+            &mut y2,
+            letterbox.orig_w,
+            letterbox.orig_h,
+        );
 
         let mut landmarks = Vec::with_capacity(PALM_LANDMARKS);
         for l in 0..PALM_LANDMARKS {
@@ -230,11 +239,9 @@ fn decode_palm_outputs(
 }
 
 pub fn pick_primary_region<'a>(regions: &'a [PalmRegion]) -> Option<&'a PalmRegion> {
-    regions.iter().max_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(Ordering::Equal)
-    })
+    regions
+        .iter()
+        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal))
 }
 
 pub fn crop_from_palm(region: &PalmRegion) -> ((f32, f32), f32, f32) {
@@ -259,18 +266,16 @@ pub fn crop_from_palm(region: &PalmRegion) -> ((f32, f32), f32, f32) {
     let landmark_span = if region.landmarks.is_empty() {
         0.0
     } else {
-        let (min_x, max_x, min_y, max_y) = region.landmarks.iter().fold(
-            (f32::MAX, f32::MIN, f32::MAX, f32::MIN),
-            |acc, (x, y)| (acc.0.min(*x), acc.1.max(*x), acc.2.min(*y), acc.3.max(*y)),
-        );
+        let (min_x, max_x, min_y, max_y) = region
+            .landmarks
+            .iter()
+            .fold((f32::MAX, f32::MIN, f32::MAX, f32::MIN), |acc, (x, y)| {
+                (acc.0.min(*x), acc.1.max(*x), acc.2.min(*y), acc.3.max(*y))
+            });
         (max_x - min_x).max(max_y - min_y)
     };
     // Expand generously to avoid cropping fingers away.
-    let side = base_w
-        .max(base_h)
-        .max(landmark_span)
-        .max(80.0)
-        * 2.4;
+    let side = base_w.max(base_h).max(landmark_span).max(80.0) * 2.4;
 
     let angle = estimate_orientation(region);
 
@@ -287,7 +292,10 @@ pub fn estimate_orientation(region: &PalmRegion) -> f32 {
         .landmarks
         .iter()
         .fold((0.0_f32, 0.0_f32), |acc, (x, y)| (acc.0 + x, acc.1 + y));
-    let mean = (cx / region.landmarks.len() as f32, cy / region.landmarks.len() as f32);
+    let mean = (
+        cx / region.landmarks.len() as f32,
+        cy / region.landmarks.len() as f32,
+    );
 
     let mut cov_xx = 0.0;
     let mut cov_xy = 0.0;
@@ -366,11 +374,7 @@ fn iou(a: &[f32; 4], b: &[f32; 4]) -> f32 {
     let area_a = (a[2] - a[0]).max(0.0) * (a[3] - a[1]).max(0.0);
     let area_b = (b[2] - b[0]).max(0.0) * (b[3] - b[1]).max(0.0);
     let union = area_a + area_b - inter;
-    if union <= 0.0 {
-        0.0
-    } else {
-        inter / union
-    }
+    if union <= 0.0 { 0.0 } else { inter / union }
 }
 
 fn sigmoid(x: f32) -> f32 {
