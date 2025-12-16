@@ -28,6 +28,10 @@ pub const SKELETON_LINE_THICKNESS: i32 = 12;
 const PALM_BOX_THICKNESS: i32 = 6;
 const PALM_SCORE_THRESHOLD: f32 = 0.25;
 
+pub const DRAW_PALM_BBOX: bool = true;
+pub const DRAW_ENLARGED_BOX: bool = true;
+pub const DRAW_ROTATED_BOX: bool = true;
+
 pub fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32, f32)]) {
     if points.len() < 2 {
         return;
@@ -72,30 +76,126 @@ pub fn draw_palm_regions(
         if region.score < PALM_SCORE_THRESHOLD {
             continue;
         }
-        let [x1, y1, x2, y2] = region.bbox;
-        let rect_color = [16u8, 185u8, 129u8, 200u8];
-        draw_rect(
-            buffer,
-            width,
-            height,
-            x1,
-            y1,
-            x2,
-            y2,
-            rect_color,
-            PALM_BOX_THICKNESS,
-        );
 
-        let point_color = [244u8, 114u8, 182u8, 230u8];
-        for &(lx, ly) in &region.landmarks {
-            draw_circle(
+        if DRAW_PALM_BBOX {
+            let [x1, y1, x2, y2] = region.bbox;
+            let rect_color = [16u8, 185u8, 129u8, 200u8];
+            draw_rect(
                 buffer,
                 width,
                 height,
-                (lx as i32, ly as i32),
-                (PALM_BOX_THICKNESS / 2).max(3),
-                point_color,
+                x1,
+                y1,
+                x2,
+                y2,
+                rect_color,
+                PALM_BOX_THICKNESS,
             );
+
+            let point_color = [244u8, 114u8, 182u8, 230u8];
+            for &(lx, ly) in &region.landmarks {
+                draw_circle(
+                    buffer,
+                    width,
+                    height,
+                    (lx as i32, ly as i32),
+                    (PALM_BOX_THICKNESS / 2).max(3),
+                    point_color,
+                );
+            }
+        }
+
+        let bbox_center = (
+            (region.bbox[0] + region.bbox[2]) * 0.5,
+            (region.bbox[1] + region.bbox[3]) * 0.5,
+        );
+
+        const SHIFT_Y: f32 = -0.4;
+        const ENLARGE_FACTOR: f32 = 3.0;
+
+        let base_w = (region.bbox[2] - region.bbox[0]).abs();
+        let base_h = (region.bbox[3] - region.bbox[1]).abs();
+        let (center_x, center_y) = (bbox_center.0, bbox_center.1 + SHIFT_Y * base_h);
+
+        let landmark_span = if region.landmarks.is_empty() {
+            0.0
+        } else {
+            let (min_x, max_x, min_y, max_y) = region
+                .landmarks
+                .iter()
+                .fold((f32::MAX, f32::MIN, f32::MAX, f32::MIN), |acc, (x, y)| {
+                    (acc.0.min(*x), acc.1.max(*x), acc.2.min(*y), acc.3.max(*y))
+                });
+            (max_x - min_x).max(max_y - min_y)
+        };
+
+        let side = base_w.max(base_h).max(landmark_span).max(80.0) * ENLARGE_FACTOR;
+
+        let angle = if region.landmarks.len() < 3 {
+            0.0
+        } else {
+            use std::f32::consts::PI;
+            let p1 = region.landmarks[0];
+            let p2 = region.landmarks[2];
+            let radians = PI / 2.0 - (-(p2.1 - p1.1)).atan2(p2.0 - p1.0);
+            let two_pi = 2.0 * PI;
+            radians - two_pi * ((radians + PI) / two_pi).floor()
+        };
+
+        if DRAW_ENLARGED_BOX {
+            let half_side = side / 2.0;
+            let x1 = center_x - half_side;
+            let y1 = center_y - half_side;
+            let x2 = center_x + half_side;
+            let y2 = center_y + half_side;
+            let enlarged_color = [255u8, 165u8, 0u8, 200u8];
+            draw_rect(
+                buffer,
+                width,
+                height,
+                x1,
+                y1,
+                x2,
+                y2,
+                enlarged_color,
+                PALM_BOX_THICKNESS,
+            );
+        }
+
+        if DRAW_ROTATED_BOX {
+            let half_side = side / 2.0;
+            let cos_a = angle.cos();
+            let sin_a = angle.sin();
+
+            let corners = [
+                (-half_side, -half_side),
+                (half_side, -half_side),
+                (half_side, half_side),
+                (-half_side, half_side),
+            ];
+
+            let rotated_corners: Vec<(f32, f32)> = corners
+                .iter()
+                .map(|(dx, dy)| {
+                    let rx = dx * cos_a - dy * sin_a + center_x;
+                    let ry = dx * sin_a + dy * cos_a + center_y;
+                    (rx, ry)
+                })
+                .collect();
+
+            let rotated_color = [255u8, 0u8, 255u8, 200u8];
+            for i in 0..4 {
+                let next = (i + 1) % 4;
+                draw_line(
+                    buffer,
+                    width,
+                    height,
+                    &rotated_corners[i],
+                    &rotated_corners[next],
+                    rotated_color,
+                    PALM_BOX_THICKNESS,
+                );
+            }
         }
     }
 }
