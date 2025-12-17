@@ -16,10 +16,10 @@ pub enum ModelKind {
     GestureClassifier,
 }
 
-const HANDPOSE_ESTIMATOR_MODEL_FILENAME: &str = "handpose_estimation_mediapipe_2023feb.onnx";
-const HANDPOSE_ESTIMATOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/handpose_estimation_mediapipe_2023feb.onnx";
-const PALM_DETECTOR_MODEL_FILENAME: &str = "palm_detection_mediapipe_2023feb.onnx";
-const PALM_DETECTOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/palm_detection_mediapipe_2023feb.onnx";
+const HANDPOSE_ESTIMATOR_MODEL_FILENAME: &str = "handpose_estimation.onnx";
+const HANDPOSE_ESTIMATOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/handpose_estimation.onnx";
+const PALM_DETECTOR_MODEL_FILENAME: &str = "palm_detection.onnx";
+const PALM_DETECTOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/palm_detection.onnx";
 const GESTURE_CLASSIFIER_MODEL_FILENAME: &str = "gesture_mlp.onnx";
 const GESTURE_CLASSIFIER_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/gesture_mlp.onnx";
 
