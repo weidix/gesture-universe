@@ -13,12 +13,15 @@ use reqwest::blocking::Client;
 pub enum ModelKind {
     HandposeEstimator,
     PalmDetector,
+    GestureClassifier,
 }
 
 const HANDPOSE_ESTIMATOR_MODEL_FILENAME: &str = "handpose_estimation_mediapipe_2023feb.onnx";
-const HANDPOSE_ESTIMATOR_MODEL_URL: &str = "https://raw.githubusercontent.com/214zzl995/gesture-universe/refs/heads/main/models/handpose_estimation_mediapipe_2023feb.onnx";
+const HANDPOSE_ESTIMATOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/handpose_estimation_mediapipe_2023feb.onnx";
 const PALM_DETECTOR_MODEL_FILENAME: &str = "palm_detection_mediapipe_2023feb.onnx";
-const PALM_DETECTOR_MODEL_URL: &str = "https://raw.githubusercontent.com/214zzl995/gesture-universe/refs/heads/main/models/palm_detection_mediapipe_2023feb.onnx";
+const PALM_DETECTOR_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/palm_detection_mediapipe_2023feb.onnx";
+const GESTURE_CLASSIFIER_MODEL_FILENAME: &str = "gesture_mlp.onnx";
+const GESTURE_CLASSIFIER_MODEL_URL: &str = "https://raw.githubusercontent.com/weidix/gesture-universe/refs/heads/main/models/gesture_mlp.onnx";
 
 pub fn default_handpose_estimator_model_path() -> PathBuf {
     PathBuf::from("models").join(HANDPOSE_ESTIMATOR_MODEL_FILENAME)
@@ -26,6 +29,10 @@ pub fn default_handpose_estimator_model_path() -> PathBuf {
 
 pub fn default_palm_detector_model_path() -> PathBuf {
     PathBuf::from("models").join(PALM_DETECTOR_MODEL_FILENAME)
+}
+
+pub fn default_gesture_classifier_model_path() -> PathBuf {
+    PathBuf::from("models").join(GESTURE_CLASSIFIER_MODEL_FILENAME)
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +115,7 @@ where
     let model_label = match model {
         ModelKind::HandposeEstimator => "handpose estimator",
         ModelKind::PalmDetector => "palm detector",
+        ModelKind::GestureClassifier => "gesture classifier",
     };
     log::info!(
         "downloading {model_label} model from {url} to {}",
@@ -223,6 +231,59 @@ where
             model_path.display()
         )
     })
+}
+
+pub fn ensure_gesture_classifier_model_ready<F>(
+    model_path: &Path,
+    mut on_event: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(ModelDownloadEvent),
+{
+    if model_path.exists() {
+        on_event(ModelDownloadEvent::AlreadyPresent {
+            model: ModelKind::GestureClassifier,
+        });
+        on_event(ModelDownloadEvent::Finished {
+            model: ModelKind::GestureClassifier,
+        });
+        return Ok(());
+    }
+
+    if let Some(parent) = model_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create gesture classifier model directory {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let mut progress: Option<ProgressBar> = None;
+    download_to_path(
+        ModelKind::GestureClassifier,
+        GESTURE_CLASSIFIER_MODEL_URL,
+        model_path,
+        &mut |event| {
+            match &event {
+                ModelDownloadEvent::Started { total, .. } => {
+                    progress = Some(create_progress_bar(*total));
+                }
+                ModelDownloadEvent::Progress { downloaded, .. } => {
+                    if let Some(pb) = progress.as_ref() {
+                        pb.set_position(*downloaded);
+                    }
+                }
+                ModelDownloadEvent::Finished { .. } => {
+                    if let Some(pb) = progress.take() {
+                        pb.finish_with_message("gesture classifier model ready");
+                    }
+                }
+                ModelDownloadEvent::AlreadyPresent { .. } => {}
+            }
+            on_event(event);
+        },
+    )
 }
 
 fn create_progress_bar(total_size: Option<u64>) -> ProgressBar {

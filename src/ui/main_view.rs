@@ -444,7 +444,7 @@ impl AppView {
                     .pt_1()
                     .text_xs()
                     .text_color(gpui::rgb(0x6b7280))
-                    .child("让手掌进入画面，并尝试不同手势（握拳、比V、OK、I Love You 等）"),
+                    .child("让手掌进入画面，尝试各种手势（打电话、点赞、OK、握拳、和平、摇滚等），基于HAGRID数据集的模型识别"),
             );
         }
 

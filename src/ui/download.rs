@@ -3,7 +3,8 @@ use super::{
     RecognizerBackend, Sender, Styled, StyledExt, div, h_flex, thread, v_flex,
 };
 use crate::model_download::{
-    ensure_handpose_estimator_model_ready, ensure_palm_detector_model_ready,
+    ensure_gesture_classifier_model_ready, ensure_handpose_estimator_model_ready,
+    ensure_palm_detector_model_ready,
 };
 use gpui::{SharedString, px};
 
@@ -147,6 +148,8 @@ pub(super) fn spawn_model_download(
     thread::spawn(move || {
         let handpose_estimator_model_path = backend.handpose_estimator_model_path();
         let palm_detector_model_path = backend.palm_detector_model_path();
+        let gesture_classifier_model_path =
+            crate::model_download::default_gesture_classifier_model_path();
 
         if let Err(err) = ensure_palm_detector_model_ready(&palm_detector_model_path, |event| {
             let _ = tx.send(DownloadMessage::Event(event));
@@ -155,13 +158,23 @@ pub(super) fn spawn_model_download(
             let _ = tx.send(DownloadMessage::Error(format!("{err:#}")));
             return;
         }
-        let result =
+
+        if let Err(err) =
             ensure_handpose_estimator_model_ready(&handpose_estimator_model_path, |event| {
                 let _ = tx.send(DownloadMessage::Event(event));
-            });
+            })
+        {
+            log::error!("failed to prepare handpose estimator model: {err:?}");
+            let _ = tx.send(DownloadMessage::Error(format!("{err:#}")));
+            return;
+        }
 
-        if let Err(err) = result {
-            log::error!("failed to download model: {err:?}");
+        if let Err(err) =
+            ensure_gesture_classifier_model_ready(&gesture_classifier_model_path, |event| {
+                let _ = tx.send(DownloadMessage::Event(event));
+            })
+        {
+            log::error!("failed to prepare gesture classifier model: {err:?}");
             let _ = tx.send(DownloadMessage::Error(format!("{err:#}")));
         }
     })
