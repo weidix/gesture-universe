@@ -130,6 +130,7 @@ struct DownloadState {
     finished: bool,
     handpose_ready: bool,
     palm_ready: bool,
+    gesture_classifier_ready: bool,
     current_model: Option<ModelKind>,
     start_time: Instant,
 }
@@ -144,6 +145,7 @@ impl DownloadState {
             finished: false,
             handpose_ready: false,
             palm_ready: false,
+            gesture_classifier_ready: false,
             current_model: None,
             start_time: Instant::now(),
         }
@@ -181,13 +183,14 @@ impl DownloadState {
                 self.message = format!("{} model ready", model_label(model));
             }
         }
-        self.finished = self.handpose_ready && self.palm_ready;
+        self.finished = self.handpose_ready && self.palm_ready && self.gesture_classifier_ready;
     }
 
     fn set_ready(&mut self, model: ModelKind) {
         match model {
             ModelKind::HandposeEstimator => self.handpose_ready = true,
             ModelKind::PalmDetector => self.palm_ready = true,
+            ModelKind::GestureClassifier => self.gesture_classifier_ready = true,
         }
     }
 }
@@ -196,6 +199,7 @@ fn model_label(model: ModelKind) -> &'static str {
     match model {
         ModelKind::HandposeEstimator => "Handpose estimator",
         ModelKind::PalmDetector => "Palm detector",
+        ModelKind::GestureClassifier => "Gesture classifier",
     }
 }
 

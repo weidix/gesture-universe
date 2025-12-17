@@ -1,22 +1,123 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     time::{Duration, Instant},
 };
 
-use crate::types::{FingerState, GestureDetail, GestureKind, GestureMotion, Handedness};
+use crate::{
+    model_download::{
+        default_gesture_classifier_model_path, ensure_gesture_classifier_model_ready,
+    },
+    types::{FingerState, GestureDetail, GestureKind, GestureMotion, Handedness},
+};
+use ndarray::Array2;
+use ort::session::Session;
 
 const MIN_CONFIDENCE: f32 = 0.2;
 const MOTION_WINDOW: Duration = Duration::from_millis(1_200);
 
 pub struct GestureClassifier {
     motion_tracker: MotionTracker,
+    model_session: Option<Session>,
+    class_to_gesture: HashMap<usize, GestureKind>,
 }
 
 impl GestureClassifier {
     pub fn new() -> Self {
+        let (model_session, class_to_gesture) = Self::load_model_and_classes();
+
+        if model_session.is_none() {
+            log::warn!(
+                "Failed to load gesture classification model, will use Unknown for all gestures"
+            );
+        }
+
         Self {
             motion_tracker: MotionTracker::new(),
+            model_session,
+            class_to_gesture,
         }
+    }
+
+    fn load_model_and_classes() -> (Option<Session>, HashMap<usize, GestureKind>) {
+        let model_path = default_gesture_classifier_model_path();
+
+        // Ensure model is downloaded
+        if let Err(e) = ensure_gesture_classifier_model_ready(&model_path, |_evt| {}) {
+            log::error!("Failed to prepare gesture classifier model: {}", e);
+            return (None, HashMap::new());
+        }
+
+        // Load ONNX model
+        let session = match Session::builder() {
+            Ok(builder) => match builder.commit_from_file(&model_path) {
+                Ok(session) => {
+                    log::info!(
+                        "Loaded gesture classification model from {}",
+                        model_path.display()
+                    );
+                    Some(session)
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to load gesture model from {}: {}",
+                        model_path.display(),
+                        e
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                log::error!("Failed to create ONNX session builder: {}", e);
+                None
+            }
+        };
+
+        // Hardcoded class mapping based on HAGRID dataset classes order
+        // Order: call, dislike, fist, four, grabbing, grip, hand_heart, hand_heart2, holy, like,
+        //        little_finger, middle_finger, mute, no_gesture, ok, one, palm, peace, peace_inverted,
+        //        point, rock, stop, stop_inverted, take_picture, three, three2, three3, three_gun,
+        //        thumb_index, thumb_index2, timeout, two_up, two_up_inverted, xsign
+        let class_to_gesture: HashMap<usize, GestureKind> = [
+            (0, GestureKind::Call),
+            (1, GestureKind::Dislike),
+            (2, GestureKind::Fist),
+            (3, GestureKind::Four),
+            (4, GestureKind::Grabbing),
+            (5, GestureKind::Grip),
+            (6, GestureKind::HandHeart),
+            (7, GestureKind::HandHeart2),
+            (8, GestureKind::Holy),
+            (9, GestureKind::Like),
+            (10, GestureKind::LittleFinger),
+            (11, GestureKind::MiddleFinger),
+            (12, GestureKind::Mute),
+            (13, GestureKind::NoGesture),
+            (14, GestureKind::Ok),
+            (15, GestureKind::One),
+            (16, GestureKind::Palm),
+            (17, GestureKind::Peace),
+            (18, GestureKind::PeaceInverted),
+            (19, GestureKind::Point),
+            (20, GestureKind::Rock),
+            (21, GestureKind::Stop),
+            (22, GestureKind::StopInverted),
+            (23, GestureKind::TakePicture),
+            (24, GestureKind::Three),
+            (25, GestureKind::Three2),
+            (26, GestureKind::Three3),
+            (27, GestureKind::ThreeGun),
+            (28, GestureKind::ThumbIndex),
+            (29, GestureKind::ThumbIndex2),
+            (30, GestureKind::Timeout),
+            (31, GestureKind::TwoUp),
+            (32, GestureKind::TwoUpInverted),
+            (33, GestureKind::XSign),
+        ]
+        .iter()
+        .copied()
+        .collect();
+
+        (session, class_to_gesture)
     }
 
     pub fn classify(
@@ -34,6 +135,7 @@ impl GestureClassifier {
             return None;
         }
 
+        // Keep the existing normalization for finger state detection
         let (normalized, _hand_span) = normalize_landmarks(raw_landmarks);
         let wrist_px = projected_landmarks.get(0).copied().unwrap_or((0.0, 0.0));
         let span_px = projected_span(projected_landmarks);
@@ -46,19 +148,131 @@ impl GestureClassifier {
         ];
 
         let handedness = handedness_from_score(handedness_score);
-        let primary = detect_primary_gesture(&normalized, &finger_states);
-        let secondary = detect_secondary(&finger_states, &normalized, primary);
+
+        // Use ONNX model for primary gesture detection
+        let primary = self.detect_gesture_with_model(raw_landmarks);
+
         let motion = self
             .motion_tracker
             .update(wrist_px, span_px, timestamp, primary);
 
         Some(GestureDetail {
             primary,
-            secondary,
+            secondary: None, // No longer using secondary detection
             handedness,
             finger_states,
             motion,
         })
+    }
+
+    /// Normalize landmarks for ONNX model input (matching training normalization)
+    fn normalize_for_model(landmarks: &[[f32; 3]]) -> Option<Vec<f32>> {
+        if landmarks.len() != 21 {
+            return None;
+        }
+
+        // Extract only x, y coordinates (drop z)
+        let mut pts: Vec<[f32; 2]> = landmarks.iter().map(|p| [p[0], p[1]]).collect();
+
+        // Translate to wrist (point 0) as origin
+        let wrist = pts[0];
+        for pt in pts.iter_mut() {
+            pt[0] -= wrist[0];
+            pt[1] -= wrist[1];
+        }
+
+        // Calculate palm width (distance between points 5 and 17)
+        let palm_width = {
+            let dx = pts[5][0] - pts[17][0];
+            let dy = pts[5][1] - pts[17][1];
+            (dx * dx + dy * dy).sqrt()
+        };
+
+        // If palm width is too small, try using middle finger base (point 9) distance from wrist
+        let scale = if palm_width > 1e-6 {
+            palm_width
+        } else {
+            let dx = pts[9][0];
+            let dy = pts[9][1];
+            (dx * dx + dy * dy).sqrt()
+        };
+
+        if scale <= 1e-6 {
+            return None;
+        }
+
+        // Scale by palm width
+        for pt in pts.iter_mut() {
+            pt[0] /= scale;
+            pt[1] /= scale;
+        }
+
+        // Flatten to 42-dimensional vector [x0, y0, x1, y1, ..., x20, y20]
+        let mut result = Vec::with_capacity(42);
+        for pt in pts {
+            result.push(pt[0]);
+            result.push(pt[1]);
+        }
+
+        Some(result)
+    }
+
+    fn detect_gesture_with_model(&mut self, raw_landmarks: &[[f32; 3]]) -> GestureKind {
+        let session = match &mut self.model_session {
+            Some(s) => s,
+            None => return GestureKind::Unknown,
+        };
+
+        // Normalize landmarks for model input
+        let input_vec = match Self::normalize_for_model(raw_landmarks) {
+            Some(v) => v,
+            None => return GestureKind::Unknown,
+        };
+
+        // Create ndarray input (1, 42) shape
+        let input_array = match Array2::from_shape_vec((1, 42), input_vec) {
+            Ok(arr) => arr,
+            Err(_) => return GestureKind::Unknown,
+        };
+
+        // Create tensor from array
+        use ort::value::Tensor;
+        let tensor = match Tensor::from_array(input_array) {
+            Ok(t) => t,
+            Err(_) => return GestureKind::Unknown,
+        };
+
+        // Run model inference
+        let outputs = match session.run(ort::inputs![tensor]) {
+            Ok(outputs) => outputs,
+            Err(e) => {
+                log::warn!("Model inference failed: {}", e);
+                return GestureKind::Unknown;
+            }
+        };
+
+        // Get the output logits (first output)
+        let logits_array = match outputs[0].try_extract_array::<f32>() {
+            Ok(arr) => arr,
+            Err(e) => {
+                log::warn!("Failed to extract logits: {}", e);
+                return GestureKind::Unknown;
+            }
+        };
+
+        // Find the class with highest logit value (argmax)
+        let predicted_class = logits_array
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+
+        // Map class index to GestureKind
+        self.class_to_gesture
+            .get(&predicted_class)
+            .copied()
+            .unwrap_or(GestureKind::Unknown)
     }
 }
 
@@ -126,7 +340,8 @@ fn classify_finger(points: &[[f32; 3]], idx: [usize; 4]) -> FingerState {
     let extension = dist_tip - dist_pip;
     let reach = dist_tip - dist_mcp;
 
-    if extension > 0.18 && straightness > 0.45 && reach > 0.08 {
+    // Relaxed thresholds to reduce half-bent false positives (especially for pinky)
+    if extension > 0.15 && straightness > 0.40 && reach > 0.06 {
         FingerState::Extended
     } else if extension < 0.08 || straightness < 0.18 || reach < 0.05 {
         FingerState::Folded
@@ -137,156 +352,42 @@ fn classify_finger(points: &[[f32; 3]], idx: [usize; 4]) -> FingerState {
 
 fn classify_thumb(points: &[[f32; 3]]) -> FingerState {
     let wrist = points[0];
-    let mcp = points[1];
-    let ip = points[2];
-    let tip = points[4];
+    let cmc = points[1]; // Carpometacarpal joint
+    let mcp = points[2]; // Metacarpophalangeal joint (corrected from points[1])
+    let ip = points[3]; // Interphalangeal joint (corrected from points[2])
+    let tip = points[4]; // Thumb tip
     let index_mcp = points[5];
     let pinky_mcp = points[17];
 
+    // Calculate distances from wrist to various thumb joints
     let dist_tip_wrist = distance3(tip, wrist);
+    let dist_ip_wrist = distance3(ip, wrist);
+    let dist_mcp_wrist = distance3(mcp, wrist);
+
+    // Calculate distances to other fingers to detect folding
     let dist_tip_index = distance3(tip, index_mcp);
     let dist_tip_pinky = distance3(tip, pinky_mcp);
-    let straightness = average_straightness(sub(ip, mcp), sub(tip, ip), sub(tip, ip));
 
+    // Calculate straightness of thumb segments
+    let straightness = average_straightness(sub(mcp, cmc), sub(ip, mcp), sub(tip, ip));
+
+    // Minimum distance to index or pinky (indicates how close thumb is to palm)
     let spread = dist_tip_index.min(dist_tip_pinky);
 
-    if spread < 0.16 && straightness < 0.25 {
+    // Extension metric: how far tip extends beyond IP joint
+    let extension = dist_tip_wrist - dist_ip_wrist;
+
+    // Reach metric: how far tip extends beyond MCP joint
+    let reach = dist_tip_wrist - dist_mcp_wrist;
+
+    // Folded: thumb is close to palm and not straight (relaxed thresholds)
+    if spread < 0.25 && (straightness < 0.28 || reach < 0.15) {
         FingerState::Folded
-    } else if dist_tip_wrist > 0.35 && straightness > 0.35 {
+    // Extended: thumb is far from wrist, straight, and extends well beyond joints
+    } else if dist_tip_wrist > 0.30 && straightness > 0.28 && extension > 0.08 {
         FingerState::Extended
     } else {
         FingerState::HalfBent
-    }
-}
-
-fn detect_primary_gesture(points: &[[f32; 3]], finger_states: &[FingerState; 5]) -> GestureKind {
-    let extended_count = finger_states
-        .iter()
-        .filter(|s| matches!(s, FingerState::Extended))
-        .count();
-    let folded_count = finger_states
-        .iter()
-        .filter(|s| matches!(s, FingerState::Folded))
-        .count();
-
-    let thumb = finger_states[0];
-    let index = finger_states[1];
-    let middle = finger_states[2];
-    let ring = finger_states[3];
-    let pinky = finger_states[4];
-
-    let thumb_index_gap = distance3(points[4], points[8]);
-    let thumb_middle_gap = distance3(points[4], points[12]);
-    let wrist_y = points[0][1];
-    let thumb_tip_y = points[4][1];
-
-    // Finger heart: thumb + index very close, both half-bent, other fingers mostly folded, tips aligned.
-    let finger_heart = thumb_index_gap < 0.08
-        && folded_count >= 3
-        && matches!(index, FingerState::HalfBent | FingerState::Folded)
-        && matches!(thumb, FingerState::HalfBent | FingerState::Folded)
-        && (points[4][1] - points[8][1]).abs() < 0.08;
-
-    // Kneading/pinch: allow thumb-index or thumb-middle pairing; non-participating fingers not extended.
-    let pinch_with_index = thumb_index_gap < 0.12
-        && matches!(middle, FingerState::Folded | FingerState::HalfBent)
-        && matches!(ring, FingerState::Folded | FingerState::HalfBent)
-        && matches!(pinky, FingerState::Folded | FingerState::HalfBent);
-    let pinch_with_middle = thumb_middle_gap < 0.12
-        && matches!(index, FingerState::Folded | FingerState::HalfBent)
-        && matches!(ring, FingerState::Folded | FingerState::HalfBent)
-        && matches!(pinky, FingerState::Folded | FingerState::HalfBent);
-    let pinch_like = pinch_with_index || pinch_with_middle;
-    let ok_like = thumb_index_gap < 0.18
-        && (middle == FingerState::Extended || ring == FingerState::Extended);
-    let ilove = matches!(thumb, FingerState::Extended | FingerState::HalfBent)
-        && index == FingerState::Extended
-        && middle != FingerState::Extended
-        && ring != FingerState::Extended
-        && pinky == FingerState::Extended;
-    let rock = index == FingerState::Extended
-        && pinky == FingerState::Extended
-        && middle != FingerState::Extended
-        && ring != FingerState::Extended
-        && thumb == FingerState::Folded;
-    let victory = index == FingerState::Extended
-        && middle == FingerState::Extended
-        && ring != FingerState::Extended
-        && pinky != FingerState::Extended;
-    let point = index == FingerState::Extended
-        && middle != FingerState::Extended
-        && ring != FingerState::Extended
-        && pinky != FingerState::Extended;
-    let three = index == FingerState::Extended
-        && middle == FingerState::Extended
-        && ring == FingerState::Extended
-        && pinky != FingerState::Extended;
-    let four = extended_count >= 4 && thumb != FingerState::Extended;
-    let fist = folded_count >= 4;
-    let open_palm = extended_count >= 4;
-
-    let thumb_up =
-        thumb == FingerState::Extended && folded_count >= 3 && thumb_tip_y + 0.08 < wrist_y;
-    let thumb_down =
-        thumb == FingerState::Extended && folded_count >= 3 && thumb_tip_y > wrist_y + 0.08;
-
-    if finger_heart {
-        GestureKind::FingerHeart
-    } else if pinch_like {
-        GestureKind::Pinch
-    } else if ok_like {
-        GestureKind::Ok
-    } else if ilove {
-        GestureKind::ILoveYou
-    } else if rock {
-        GestureKind::Rock
-    } else if victory {
-        GestureKind::Victory
-    } else if point {
-        GestureKind::Point
-    } else if thumb_up {
-        GestureKind::ThumbUp
-    } else if thumb_down {
-        GestureKind::ThumbDown
-    } else if fist {
-        GestureKind::Fist
-    } else if four {
-        GestureKind::Four
-    } else if open_palm {
-        GestureKind::OpenPalm
-    } else if three {
-        GestureKind::Three
-    } else {
-        GestureKind::Unknown
-    }
-}
-
-fn detect_secondary(
-    finger_states: &[FingerState; 5],
-    points: &[[f32; 3]],
-    primary: GestureKind,
-) -> Option<GestureKind> {
-    if primary != GestureKind::Unknown {
-        return None;
-    }
-
-    let extended_count = finger_states
-        .iter()
-        .filter(|s| matches!(s, FingerState::Extended))
-        .count();
-    let folded_count = finger_states
-        .iter()
-        .filter(|s| matches!(s, FingerState::Folded))
-        .count();
-
-    if extended_count >= 4 {
-        Some(GestureKind::OpenPalm)
-    } else if folded_count >= 4 {
-        Some(GestureKind::Fist)
-    } else if distance3(points[4], points[8]).min(distance3(points[4], points[12])) < 0.14 {
-        Some(GestureKind::Pinch)
-    } else {
-        None
     }
 }
 
@@ -388,7 +489,7 @@ impl MotionTracker {
 
         let is_open_palm = matches!(
             primary,
-            GestureKind::OpenPalm | GestureKind::Four | GestureKind::Unknown
+            GestureKind::Palm | GestureKind::Four | GestureKind::Unknown
         );
 
         if span_x > 0.55 && direction_changes_x >= 2 && is_open_palm {
