@@ -24,7 +24,7 @@ pub const CONNECTIONS: &[(usize, usize)] = &[
     (13, 17),
 ];
 
-pub const SKELETON_LINE_THICKNESS: i32 = 24;
+
 const PALM_BOX_THICKNESS: i32 = 6;
 const PALM_SCORE_THRESHOLD: f32 = 0.25;
 
@@ -37,7 +37,13 @@ pub fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32,
         return;
     }
 
-    let line_color = [56u8, 189u8, 248u8, 255u8];
+    let hand_span = calculate_hand_span(points);
+    
+    let line_thickness = (hand_span * 0.0125).max(1.0) as i32;
+    
+    let radius_step = (hand_span * 0.006).max(1.0) as i32;
+
+    let line_color = [34u8, 197u8, 94u8, 255u8];
     for &(a, b) in CONNECTIONS {
         if let (Some(pa), Some(pb)) = (points.get(a), points.get(b)) {
             draw_line(
@@ -47,19 +53,27 @@ pub fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32,
                 pa,
                 pb,
                 line_color,
-                SKELETON_LINE_THICKNESS,
+                line_thickness,
             );
         }
     }
 
     let point_color = [248u8, 113u8, 113u8, 255u8];
-    let base_radius = (SKELETON_LINE_THICKNESS * 3 / 8).max(3);
-    let radius_step = (SKELETON_LINE_THICKNESS * 3 / 10).max(2);
-
+    let border_color = line_color;
     for (i, &(x, y)) in points.iter().enumerate() {
         let depth = get_point_depth(i);
-        let point_radius = base_radius + depth * radius_step;
+        let base_radius = (hand_span * 0.02).max(2.0) as i32;
+        let point_radius = (base_radius + depth * radius_step).max(2);
 
+        draw_circle(
+            buffer,
+            width,
+            height,
+            (x as i32, y as i32),
+            point_radius + line_thickness,
+            border_color,
+        );
+        
         draw_circle(
             buffer,
             width,
@@ -71,11 +85,34 @@ pub fn draw_skeleton(buffer: &mut [u8], width: u32, height: u32, points: &[(f32,
     }
 }
 
+fn calculate_hand_span(points: &[(f32, f32)]) -> f32 {
+    if points.is_empty() {
+        return 100.0; 
+    }
+    
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+    
+    for &(x, y) in points {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    
+    width.max(height).max(100.0)
+}
+
 fn get_point_depth(index: usize) -> i32 {
     if index == 0 {
-        return 5;
+        return 0;
     }
-    3 - ((index as i32 - 1) % 4)
+    (index as i32 - 1) % 4
 }
 
 pub fn draw_palm_regions(
